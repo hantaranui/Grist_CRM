@@ -2663,7 +2663,7 @@ function drawCAPipelinePieChart() {
 // =============================================================================
 
 var editModalActiveTab = 'fiche';
-var modalExpanded = false;
+var modalExpanded = true;
 
 function toggleModalExpand(compteId) {
   captureInfoDraftIfPresent();

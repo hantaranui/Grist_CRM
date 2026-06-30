@@ -1314,7 +1314,8 @@ async function createCompte(initialType) {
     showToast(t('compteCreated'), 'success');
     logActivity('compte_created', newId, '', '');
     await loadAllData();
-    openEditCompteModal(newId);
+    editModalActiveTab = 'info';
+    openEditCompteModal(newId, true);
   } catch (e) {
     console.error('[CRM] Error creating compte:', e);
     showToast('Erreur : ' + e.message, 'error');
@@ -2762,7 +2763,8 @@ function renderFicheTab(compte) {
   var fr = currentLang === 'fr';
 
   var html = '<div class="fiche-header">';
-  html += '<div class="fiche-avatar" style="background:' + (getAccountTypes().find(function(tp){return tp.key===compte.Type;}) || {}).color || '#42B6C8' + ';">' + initial + '</div>';
+  var typeColor = ((getAccountTypes().find(function(tp) { return tp.key === compte.Type; }) || {}).color) || '#42B6C8';
+  html += '<div class="fiche-avatar" style="background:' + typeColor + ';">' + initial + '</div>';
   html += '<div class="fiche-header-main">';
   html += '<div class="fiche-header-name">' + sanitize(compte.Name || '—') + '</div>';
   html += '<div class="fiche-header-badges">';

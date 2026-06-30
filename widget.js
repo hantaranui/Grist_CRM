@@ -2537,7 +2537,7 @@ function renderStatsView() {
 
 function statCard(label, value, color) {
   return '<div class="stat-card">' +
-    '<div class="stat-value">' + value + '</div>' +
+    '<div class="stat-value" style="color:' + (color || 'var(--color-accent-cyan)') + ';">' + value + '</div>' +
     '<div class="stat-label">' + sanitize(label) + '</div></div>';
 }
 

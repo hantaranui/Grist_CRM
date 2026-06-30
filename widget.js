@@ -219,6 +219,144 @@ var columnMapping = {
 // KANBAN STATUSES (personnalisables — comme le widget PM)
 // =============================================================================
 
+// =============================================================================
+// ACCOUNT TYPES (personnalisables — client / prospect / ancien + custom)
+// =============================================================================
+
+var defaultAccountTypes = [
+  { key: 'client',   label: 'Client',        color: '#42B6C8' },
+  { key: 'prospect', label: 'Prospect',      color: '#B9FFB7' },
+  { key: 'ancien',   label: 'Ancien client', color: '#EEFFEE' }
+];
+var customAccountTypes = null;
+
+function getAccountTypes() {
+  return customAccountTypes || defaultAccountTypes;
+}
+function getAccountTypeLabel(key) {
+  var found = getAccountTypes().find(function(t) { return t.key === key; });
+  return found ? found.label : key;
+}
+async function saveAccountTypes() {
+  await saveSetting('account_types', JSON.stringify(customAccountTypes));
+}
+
+// draft pour l'éditeur dans Paramètres
+var draftAccountTypes = null;
+
+function renderAccountTypeList() {
+  var list = draftAccountTypes || getAccountTypes();
+  var html = '';
+  if (!list.length) html += '<div class="empty-state">Aucun type</div>';
+  list.forEach(function(type, idx) {
+    var color = type.color || '#CCCCCC';
+    html += '<div class="kanban-status-edit-row">';
+    html += '<input type="color" value="' + color + '" title="Couleur du badge" onchange="updateAccountTypeDraftColor(' + idx + ', this.value)">';
+    html += '<input type="text" value="' + sanitize(type.label) + '" oninput="updateAccountTypeDraftLabel(' + idx + ', this.value)">';
+    html += '<button class="btn-icon" title="Supprimer" onclick="removeAccountTypeDraft(' + idx + ')">🗑️</button>';
+    html += '</div>';
+  });
+  html += '<div class="kanban-status-edit-row">';
+  html += '<input type="text" id="new-account-type-name" placeholder="' + (currentLang === 'fr' ? 'Nom du nouveau type' : 'New type name') + '" style="flex:1;">';
+  html += '</div>';
+  return html;
+}
+
+function applyAccountTypeStyles() {
+  var existing = document.getElementById('account-type-dynamic-styles');
+  if (!existing) {
+    existing = document.createElement('style');
+    existing.id = 'account-type-dynamic-styles';
+    document.head.appendChild(existing);
+  }
+  var types = getAccountTypes();
+  var css = types.map(function(t) {
+    var color = t.color || '#CCCCCC';
+    // texte blanc si couleur foncée, sinon primaire
+    var r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
+    var lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+    var textColor = lum < 0.55 ? 'white' : 'var(--color-primary)';
+    return '.type-' + t.key + ' { background: ' + color + ' !important; color: ' + textColor + ' !important; }';
+  }).join('\n');
+  existing.textContent = css;
+}
+
+function updateAccountTypeDraftLabel(idx, val) {
+  if (!draftAccountTypes) draftAccountTypes = JSON.parse(JSON.stringify(getAccountTypes()));
+  draftAccountTypes[idx].label = val;
+}
+
+function updateAccountTypeDraftColor(idx, val) {
+  if (!draftAccountTypes) draftAccountTypes = JSON.parse(JSON.stringify(getAccountTypes()));
+  draftAccountTypes[idx].color = val;
+}
+
+function slugifyTypeKey(label) {
+  return (label || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'type';
+}
+
+function addAccountTypeDraft() {
+  if (!draftAccountTypes) draftAccountTypes = JSON.parse(JSON.stringify(getAccountTypes()));
+  var label = getVal('new-account-type-name', '').trim();
+  if (!label) {
+    showToast(currentLang === 'fr' ? 'Indiquez un nom de type avant d’ajouter' : 'Enter a type name before adding', 'error');
+    return;
+  }
+  var slug = slugifyTypeKey(label);
+  var existingKeys = draftAccountTypes.map(function(t) { return t.key; });
+  var finalKey = slug, n = 2;
+  while (existingKeys.indexOf(finalKey) !== -1) { finalKey = slug + '_' + n; n++; }
+  draftAccountTypes.push({ key: finalKey, label: label, color: '#CCCCCC' });
+  commitAccountTypes();
+}
+
+function removeAccountTypeDraft(idx) {
+  if (!draftAccountTypes) draftAccountTypes = JSON.parse(JSON.stringify(getAccountTypes()));
+  draftAccountTypes.splice(idx, 1);
+  document.getElementById('account-type-list').innerHTML = renderAccountTypeList();
+}
+
+async function commitAccountTypes() {
+  if (!draftAccountTypes) return;
+  var previousTypes = customAccountTypes;
+  var newTypes = draftAccountTypes;
+  customAccountTypes = newTypes;
+  draftAccountTypes = null;
+  try {
+    await saveAccountTypes();
+  } catch (e) {
+    customAccountTypes = previousTypes;
+    console.error('[CRM] Échec sauvegarde types de comptes :', e);
+    showToast((currentLang === 'fr' ? 'Échec de l’enregistrement : ' : 'Save failed: ') + e.message, 'error', 8000);
+    return;
+  }
+  applyAccountTypeStyles();
+  refreshTypeSelects();
+  var listEl = document.getElementById('account-type-list');
+  if (listEl) listEl.innerHTML = renderAccountTypeList();
+  showToast(currentLang === 'fr' ? 'Types de comptes enregistrés' : 'Account types saved', 'success');
+}
+
+function refreshTypeSelects() {
+  var types = getAccountTypes();
+  // Kanban toolbar
+  var kanbanSel = document.getElementById('kanban-type-select');
+  if (kanbanSel) {
+    var cur = kanbanSel.value;
+    kanbanSel.innerHTML = '<option value="">' + t('allTypes') + '</option>' +
+      types.map(function(tp) { return '<option value="' + tp.key + '"' + (cur === tp.key ? ' selected' : '') + '>' + sanitize(tp.label) + '</option>'; }).join('');
+  }
+  // Table filter
+  var tableSel = document.getElementById('table-filter-type');
+  if (tableSel) {
+    var cur2 = tableSel.value;
+    tableSel.innerHTML = '<option value="">' + t('allTypes') + '</option>' +
+      types.map(function(tp) { return '<option value="' + tp.key + '"' + (cur2 === tp.key ? ' selected' : '') + '>' + sanitize(tp.label) + '</option>'; }).join('');
+  }
+}
+
+// =============================================================================
+
 var defaultKanbanStatuses = [
   { key: 'premier_contact', label: 'Premier contact', color: '#3b82f6' },
   { key: 'negociation',     label: 'En négociation',  color: '#f59e0b' },
@@ -281,6 +419,10 @@ var defaultEmailTemplates = {
   generique: {
     subject: '{compte}',
     body: 'Bonjour {contact},\n\n\n\nBien cordialement,\n{responsable}'
+  },
+  prospection: {
+    subject: 'Présentation — {compte}',
+    body: 'Bonjour {contact},\n\nJe me permets de vous présenter notre offre, qui pourrait intéresser {compte}.\nN’hésitez pas à me faire savoir si vous souhaitez échanger.\n\nBien cordialement,\n{responsable}'
   }
 };
 
@@ -323,6 +465,10 @@ async function loadSettings() {
     if (_settingsCache.kanban_statuses) {
       try { customKanbanStatuses = JSON.parse(_settingsCache.kanban_statuses.value); } catch (e) {}
     }
+    if (_settingsCache.account_types) {
+      try { customAccountTypes = JSON.parse(_settingsCache.account_types.value); } catch (e) {}
+    }
+    applyAccountTypeStyles();
     if (_settingsCache.equipe_roles) {
       try { customEquipeRoles = JSON.parse(_settingsCache.equipe_roles.value); } catch (e) {}
     }
@@ -346,6 +492,7 @@ async function saveSetting(key, value) {
     }
   } catch (e) {
     console.error('[CRM] Error saving setting:', e);
+    throw e;
   }
 }
 
@@ -467,6 +614,55 @@ function setField(record, entity, field, value) {
 // INIT — CREATE TABLES IF NEEDED
 // =============================================================================
 
+// Ajoute les colonnes Email_Status/Email_Sujet/Email_Corps/Email_Destinataire sur CRM_Comptes
+// si elles n'existent pas encore (documents créés avant cette fonctionnalité).
+// Retourne un résumé { added: [...], failed: [{field, error}], alreadyPresent: [...] } pour affichage.
+async function migrateEmailQueueColumns() {
+  var result = { added: [], failed: [], alreadyPresent: [] };
+  var fields = ['Email_Status', 'Email_Sujet', 'Email_Corps', 'Email_Destinataire'];
+  try {
+    var compteColsEmail = Object.keys(await grist.docApi.fetchTable(COMPTES_TABLE));
+    console.log('[CRM] Colonnes ' + COMPTES_TABLE + ' existantes :', compteColsEmail);
+    for (var i = 0; i < fields.length; i++) {
+      var field = fields[i];
+      if (compteColsEmail.indexOf(field) !== -1) {
+        result.alreadyPresent.push(field);
+        continue;
+      }
+      try {
+        await grist.docApi.applyUserActions([['AddColumn', COMPTES_TABLE, field, { type: 'Text' }]]);
+        console.log('[CRM] ' + field + ' ajouté à ' + COMPTES_TABLE);
+        result.added.push(field);
+      } catch (eField) {
+        console.error('[CRM] Échec ajout ' + field + ' :', eField.message);
+        result.failed.push({ field: field, error: eField.message });
+      }
+    }
+  } catch (e) {
+    console.error('[CRM] Migration file d’attente email ignorée (fetchTable a échoué) :', e.message);
+    result.failed.push({ field: 'fetchTable', error: e.message });
+  }
+  return result;
+}
+
+async function retryEmailQueueMigration() {
+  var result = await migrateEmailQueueColumns();
+  if (result.failed.length > 0) {
+    showToast(
+      (currentLang === 'fr' ? 'Échec pour : ' : 'Failed for: ') + result.failed.map(function(f) { return f.field + ' (' + f.error + ')'; }).join(', '),
+      'error', 8000
+    );
+  } else if (result.added.length > 0) {
+    showToast(
+      (currentLang === 'fr' ? 'Colonnes ajoutées : ' : 'Columns added: ') + result.added.join(', '),
+      'success'
+    );
+    await loadAllData();
+  } else {
+    showToast(currentLang === 'fr' ? 'Toutes les colonnes existent déjà.' : 'All columns already exist.', 'info');
+  }
+}
+
 async function ensureTables() {
   try {
     var existingTables = await grist.docApi.listTables();
@@ -512,7 +708,11 @@ async function ensureTables() {
           { id: 'Adresse_Rue', type: 'Text' },
           { id: 'Adresse_Code_Postal', type: 'Text' },
           { id: 'Adresse_Ville', type: 'Text' },
-          { id: 'Cree_Le', type: 'Date' }
+          { id: 'Cree_Le', type: 'Date' },
+          { id: 'Email_Status', type: 'Text' },
+          { id: 'Email_Sujet', type: 'Text' },
+          { id: 'Email_Corps', type: 'Text' },
+          { id: 'Email_Destinataire', type: 'Text' }
         ]]
       ]);
     }
@@ -720,6 +920,8 @@ async function ensureTables() {
       console.log('[CRM] Migration Site_Web/Adresse ignorée :', e.message);
     }
 
+    await migrateEmailQueueColumns();
+
     showToast(t('tablesCreated'), 'success');
   } catch (e) {
     console.error('[CRM] Error ensuring tables:', e);
@@ -798,7 +1000,8 @@ async function loadAllData() {
           Website: compteData[websiteCol] ? compteData[websiteCol][i] : '',
           Address_Street: compteData[addressStreetCol] ? compteData[addressStreetCol][i] : '',
           Address_Zip: compteData[addressZipCol] ? compteData[addressZipCol][i] : '',
-          Address_City: compteData[addressCityCol] ? compteData[addressCityCol][i] : ''
+          Address_City: compteData[addressCityCol] ? compteData[addressCityCol][i] : '',
+          Email_Status: compteData.Email_Status ? compteData.Email_Status[i] : 'brouillon'
         });
       }
     }
@@ -1080,6 +1283,7 @@ async function createCompte(initialType) {
   setField(record, 'comptes', 'status', getKanbanStatuses()[0].key);
   setField(record, 'comptes', 'priority', 'medium');
   setField(record, 'comptes', 'createdAt', Math.floor(Date.now() / 1000));
+  record.Email_Status = 'brouillon';
 
   try {
     var res = await grist.docApi.applyUserActions([['AddRecord', COMPTES_TABLE, null, record]]);
@@ -1647,7 +1851,7 @@ function executeContactAction(compteId, contactId, actionType) {
 
   if (!contact.Email) { showToast(t('noEmail'), 'error'); return; }
 
-  var templateKey = actionType === 'contract' ? 'contrat' : (actionType === 'relance' ? 'relance' : 'generique');
+  var templateKey = actionType === 'contract' ? 'contrat' : (actionType === 'relance' ? 'relance' : (actionType === 'prospection' ? 'prospection' : 'generique'));
   var template = getEmailTemplates()[templateKey];
   var vars = {
     contact: contact.Name || '',
@@ -1684,7 +1888,7 @@ function executeContactAction(compteId, contactId, actionType) {
     );
   }
 
-  var actionLabel = actionType === 'contract' ? 'action_send_contract' : (actionType === 'relance' ? 'action_relance' : 'action_email');
+  var actionLabel = actionType === 'contract' ? 'action_send_contract' : (actionType === 'relance' ? 'action_relance' : (actionType === 'prospection' ? 'action_prospection' : 'action_email'));
   logActivity(actionLabel, compteId, compte.Name, contact.Name);
   if (!contractFile) showToast(t('actionLogged'), 'success');
 
@@ -1756,6 +1960,12 @@ function openBulkActionModal(actionType, recipients) {
   var webhookConfigured = !!getWebhookUrl();
   var modalContainer = document.getElementById('modal-container');
   var actionLabelText = actionType === 'relance' ? (currentLang === 'fr' ? 'Relance groupée' : 'Bulk follow-up') : (currentLang === 'fr' ? 'Email groupé' : 'Bulk email');
+  var defaultTemplateKey = actionType === 'relance' ? 'relance' : 'generique';
+  var templateLabels = {
+    relance: currentLang === 'fr' ? 'Relance' : 'Follow-up',
+    generique: currentLang === 'fr' ? 'Email générique' : 'Generic email',
+    prospection: currentLang === 'fr' ? 'Prospection' : 'Prospecting'
+  };
 
   var html = '<div class="modal-overlay" onclick="if(event.target===this) closeModal()">';
   html += '<div class="modal modal-small">';
@@ -1763,20 +1973,27 @@ function openBulkActionModal(actionType, recipients) {
   html += '<div class="modal-body">';
   html += '<p style="margin-bottom:12px;">' + recipients.length + ' ' + (currentLang === 'fr' ? 'destinataire(s) :' : 'recipient(s):') + ' ' + recipients.map(function(r) { return sanitize(r.contact.Name); }).join(', ') + '</p>';
 
-  if (webhookConfigured) {
-    html += '<div class="rgpd-notice" style="background:#EAF6F8;color:#1B5C66;">' + (currentLang === 'fr'
-      ? '✓ Un webhook est configuré. Chaque email sera envoyé individuellement et personnalisé (variable {contact} fonctionnelle), sans qu\u2019aucun destinataire ne voie les autres.'
-      : '✓ A webhook is configured. Each email will be sent individually and personalized, with no recipient seeing the others.') + '</div>';
-  } else {
-    html += '<div class="rgpd-notice">' + (currentLang === 'fr'
-      ? 'Aucun webhook configuré : un seul brouillon sera ouvert dans votre messagerie, avec tous les destinataires en copie cachée (Cci). Le message sera identique pour tous (la variable {contact} ne sera pas personnalisée). Pour personnaliser chaque email automatiquement, configurez un webhook dans Paramètres.'
-      : 'No webhook configured: a single draft will open with all recipients in Bcc. The message will be identical for everyone. Configure a webhook in Settings to personalize each email automatically.') + '</div>';
+  html += '<label class="form-field"><span>' + (currentLang === 'fr' ? 'Modèle d’email' : 'Email template') + '</span>';
+  html += '<select id="bulk-template-select">';
+  ['relance', 'generique', 'prospection'].forEach(function(key) {
+    html += '<option value="' + key + '"' + (key === defaultTemplateKey ? ' selected' : '') + '>' + templateLabels[key] + '</option>';
+  });
+  html += '</select></label>';
+
+  html += '<div class="rgpd-notice" style="background:#EAF6F8;color:#1B5C66;margin-top:10px;">' + (currentLang === 'fr'
+    ? '✓ En validant, ces comptes seront marqués « À envoyer » (champ Email_Status). Votre automatisation (n8n) détecte ce statut, envoie l’email personnalisé, puis repasse le compte à « Envoyé ».'
+    : '✓ Confirming will mark these accounts as “To send” (Email_Status field). Your automation (n8n) picks up that status, sends the personalized email, then sets the account back to “Sent”.') + '</div>';
+
+  if (!webhookConfigured) {
+    html += '<p class="settings-hint" style="margin-top:10px;">' + (currentLang === 'fr'
+      ? 'Pas d’automatisation ? Vous pouvez aussi ouvrir un brouillon dans votre messagerie (tous les destinataires en copie cachée).'
+      : 'No automation? You can also open a draft in your mail client (all recipients in Bcc).') + ' <a href="#" onclick="event.preventDefault(); confirmBulkAction(\'' + actionType + '\');">' + (currentLang === 'fr' ? 'Ouvrir un brouillon' : 'Open a draft') + '</a></p>';
   }
 
   html += '</div>';
   html += '<div class="modal-footer">';
   html += '<button class="btn btn-secondary" onclick="closeModal()">' + t('cancel') + '</button>';
-  html += '<button class="btn btn-primary" onclick="confirmBulkAction(\'' + actionType + '\')">' + (currentLang === 'fr' ? 'Envoyer' : 'Send') + '</button>';
+  html += '<button class="btn btn-primary" onclick="confirmBulkQueue(\'' + actionType + '\')">' + (currentLang === 'fr' ? 'Mettre en file d’attente' : 'Queue for sending') + '</button>';
   html += '</div></div></div>';
 
   modalContainer.innerHTML = html;
@@ -1784,6 +2001,49 @@ function openBulkActionModal(actionType, recipients) {
 
   // stocke temporairement les destinataires résolus pour la confirmation
   window.__pendingBulkRecipients = recipients;
+}
+
+async function confirmBulkQueue(actionType) {
+  var recipients = window.__pendingBulkRecipients || [];
+  var templateKey = getVal('bulk-template-select', actionType === 'relance' ? 'relance' : 'generique');
+  closeModal();
+  if (recipients.length === 0) return;
+
+  var template = getEmailTemplates()[templateKey];
+  var actions = recipients.map(function(r) {
+    var vars = {
+      contact: r.contact.Name || '',
+      compte: r.compte.Name || '',
+      responsable: getEquipeMemberName(r.compte.Responsible) || '',
+      montant: formatAmount(r.compte.Amount)
+    };
+    return ['UpdateRecord', COMPTES_TABLE, r.compte.id, {
+      Email_Status: 'a_envoyer',
+      Email_Sujet: fillTemplate(template.subject, vars),
+      Email_Corps: fillTemplate(template.body, vars),
+      Email_Destinataire: r.contact.Email
+    }];
+  });
+
+  try {
+    await grist.docApi.applyUserActions(actions);
+    showToast(
+      (currentLang === 'fr' ? recipients.length + ' compte(s) marqué(s) « À envoyer »' : recipients.length + ' account(s) marked “To send”'),
+      'success'
+    );
+  } catch (e) {
+    console.error('[CRM] Bulk queue error:', e);
+    showToast(currentLang === 'fr' ? 'Erreur lors de la mise en file d’attente.' : 'Error queueing accounts.', 'error');
+  }
+
+  recipients.forEach(function(r) {
+    logActivity(actionType === 'relance' ? 'action_bulk_relance' : 'action_bulk_email', r.compte.id, r.compte.Name, r.contact.Name);
+  });
+
+  window.__pendingBulkRecipients = null;
+  selectedCompteIds = [];
+  await loadAllData();
+  renderTableView();
 }
 
 function confirmBulkAction(actionType) {
@@ -1861,8 +2121,8 @@ function renderKanbanView() {
     var col = statuses[s];
     var colComptes = filtered.filter(function(c) { return c.Status === col.key; });
     html += '<div class="kanban-column">';
-    html += '<div class="kanban-col-header" style="border-top:3px solid ' + col.color + ';">';
-    html += '<span>' + sanitize(col.label) + '</span><span class="kanban-count">' + colComptes.length + '</span>';
+    html += '<div class="kanban-col-header" style="--kanban-col-color:' + col.color + '; border-bottom-color:' + col.color + ';">';
+    html += '<div class="kanban-col-header-left"><span>' + sanitize(col.label) + '</span></div><span class="kanban-count">' + colComptes.length + '</span>';
     html += '</div>';
     html += '<div class="kanban-cards" data-status="' + sanitize(col.key) + '" ondragover="onKanbanDragOver(event)" ondrop="onKanbanDrop(event)" ondragleave="onKanbanDragLeave(event)">';
     for (var i = 0; i < colComptes.length; i++) {
@@ -1884,7 +2144,7 @@ function renderCompteCard(compte) {
 
   var html = '<div class="compte-card ' + relanceClass + '" draggable="true" ondragstart="onKanbanDragStart(event, ' + compte.id + ')" onclick="openEditCompteModal(' + compte.id + ')">';
   html += '<div class="compte-card-top">';
-  html += '<span class="type-badge ' + typeClass + '">' + t('type' + capitalize(compte.Type)) + '</span>';
+  html += '<span class="type-badge ' + typeClass + '">' + getAccountTypeLabel(compte.Type) + '</span>';
   html += '<span class="priority-dot ' + prioClass + '"></span>';
   html += '</div>';
   html += '<div class="compte-card-name">' + sanitize(compte.Name) + '</div>';
@@ -2106,7 +2366,7 @@ function renderTableView() {
     html += '<tr class="clickable-row ' + (isChecked ? 'row-selected' : '') + '">';
     html += '<td onclick="event.stopPropagation();"><input type="checkbox" class="compte-row-checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleCompteSelection(' + c.id + ', this.checked)"></td>';
     html += '<td onclick="openEditCompteModal(' + c.id + ')"><strong>' + sanitize(c.Name) + '</strong></td>';
-    html += '<td onclick="openEditCompteModal(' + c.id + ')"><span class="type-badge type-' + c.Type + '">' + t('type' + capitalize(c.Type)) + '</span></td>';
+    html += '<td onclick="openEditCompteModal(' + c.id + ')"><span class="type-badge type-' + c.Type + '">' + getAccountTypeLabel(c.Type) + '</span></td>';
     html += '<td onclick="openEditCompteModal(' + c.id + ')"><span class="status-badge" style="background:' + getStatusColor(c.Status) + '22;color:' + getStatusColor(c.Status) + ';">● ' + sanitize(getStatusLabel(c.Status)) + '</span></td>';
     html += '<td onclick="openEditCompteModal(' + c.id + ')"><span class="priority-dot dot-' + c.Priority + '"></span> ' + t('priority' + capitalize(c.Priority)) + '</td>';
     html += '<td onclick="openEditCompteModal(' + c.id + ')">' + sanitize(getEquipeMemberName(c.Responsible)) + '</td>';
@@ -2181,7 +2441,7 @@ function renderRelanceGroup(title, list, isLate) {
       : (days === 0 ? (currentLang === 'fr' ? 'Aujourd\u2019hui' : 'Today') : (currentLang === 'fr' ? 'dans ' + days + ' j' : 'in ' + days + ' d'));
     html += '<div class="relance-item ' + (isLate ? 'relance-item-late' : '') + '" onclick="openEditCompteModal(' + c.id + ')">';
     html += '<div class="relance-item-main">';
-    html += '<span class="type-badge type-' + c.Type + '">' + t('type' + capitalize(c.Type)) + '</span>';
+    html += '<span class="type-badge type-' + c.Type + '">' + getAccountTypeLabel(c.Type) + '</span>';
     html += '<strong>' + sanitize(c.Name) + '</strong>';
     if (c.Next_Action) html += '<span class="relance-item-action">' + sanitize(c.Next_Action) + '</span>';
     html += '</div>';
@@ -2232,8 +2492,8 @@ function renderStatsView() {
 }
 
 function statCard(label, value, color) {
-  return '<div class="stat-card" style="border-left:3px solid ' + color + ';">' +
-    '<div class="stat-value" style="color:' + color + ';">' + value + '</div>' +
+  return '<div class="stat-card">' +
+    '<div class="stat-value">' + value + '</div>' +
     '<div class="stat-label">' + sanitize(label) + '</div></div>';
 }
 
@@ -2407,6 +2667,9 @@ function renderCompteModal(compte) {
   html += '<button class="btn-action" onclick="triggerContactAction(' + compte.id + ', \'email\')">✉️ ' + t('actionEmail') + '</button>';
   html += '<button class="btn-action" onclick="triggerContactAction(' + compte.id + ', \'contract\')">📄 ' + t('actionContract') + '</button>';
   html += '<button class="btn-action" onclick="triggerContactAction(' + compte.id + ', \'relance\')">⏰ ' + t('actionRelance') + '</button>';
+  if (compte.Type === 'prospect') {
+    html += '<button class="btn-action" onclick="triggerContactAction(' + compte.id + ', \'prospection\')">📣 ' + (currentLang === 'fr' ? 'Envoyer la présentation' : 'Send presentation') + '</button>';
+  }
   html += '</div>';
 
   html += '<div class="modal-tabs">';
@@ -2471,9 +2734,7 @@ function renderInfoTab(compte) {
   var html = '<div class="form-grid">';
   html += formField(t('fieldName'), '<input id="compte-name" type="text" value="' + sanitize(vName) + '">');
   html += formField(t('fieldType'), '<select id="compte-type">' +
-    '<option value="prospect"' + (vType === 'prospect' ? ' selected' : '') + '>' + t('typeProspect') + '</option>' +
-    '<option value="client"' + (vType === 'client' ? ' selected' : '') + '>' + t('typeClient') + '</option>' +
-    '<option value="ancien"' + (vType === 'ancien' ? ' selected' : '') + '>' + t('typeAncien') + '</option>' +
+    getAccountTypes().map(function(tp) { return '<option value="' + tp.key + '"' + (vType === tp.key ? ' selected' : '') + '>' + sanitize(tp.label) + '</option>'; }).join('') +
     '</select>');
   html += formField(t('fieldStatus'), '<select id="compte-status">' + buildStatusOptions(vStatus) + '</select>');
   html += formField(t('fieldPriority'), '<select id="compte-priority">' +
@@ -2669,7 +2930,7 @@ function exportComptesToCsv() {
   var rows = [headers.join(',')];
   comptes.forEach(function(c) {
     rows.push([
-      escapeCsv(c.Name), escapeCsv(t('type' + capitalize(c.Type))), escapeCsv(getStatusLabel(c.Status)), escapeCsv(t('priority' + capitalize(c.Priority))),
+      escapeCsv(c.Name), escapeCsv(getAccountTypeLabel(c.Type)), escapeCsv(getStatusLabel(c.Status)), escapeCsv(t('priority' + capitalize(c.Priority))),
       escapeCsv(getEquipeMemberName(c.Responsible)), escapeCsv(c.Amount), escapeCsv(getSignedContractsTotal(c.id)),
       escapeCsv(c.Next_Action), escapeCsv(c.Next_Action_Date ? formatDate(c.Next_Action_Date) : ''),
       escapeCsv(c.Relance_Date ? formatDate(c.Relance_Date) : ''), escapeCsv(c.Category), escapeCsv(c.Tag), escapeCsv(c.Description)
@@ -2720,7 +2981,7 @@ function exportComptesToPdf() {
   comptes.forEach(function(c) {
     if (y > doc.internal.pageSize.getHeight() - 40) { doc.addPage(); y = 50; drawRow(headers, true); }
     drawRow([
-      c.Name, t('type' + capitalize(c.Type)), getStatusLabel(c.Status), t('priority' + capitalize(c.Priority)),
+      c.Name, getAccountTypeLabel(c.Type), getStatusLabel(c.Status), t('priority' + capitalize(c.Priority)),
       getEquipeMemberName(c.Responsible), formatAmount(c.Amount), c.Next_Action, c.Relance_Date ? formatDate(c.Relance_Date) : ''
     ], false);
   });
@@ -2781,6 +3042,7 @@ async function importComptesRows(rows) {
     if (amountIdx !== -1) setField(rec, 'comptes', 'amount', parseFloat(row[amountIdx]) || 0);
     if (catIdx !== -1) setField(rec, 'comptes', 'category', row[catIdx]);
     setField(rec, 'comptes', 'createdAt', Math.floor(Date.now() / 1000));
+    rec.Email_Status = 'brouillon';
     records.push(rec);
   }
 
@@ -2883,13 +3145,30 @@ function renderSettingsView() {
   if (!container) return;
   if (!draftKanbanStatuses) draftKanbanStatuses = JSON.parse(JSON.stringify(getKanbanStatuses()));
 
-  var html = '<div class="settings-section">';
+  var html = '<div class="settings-row-2col">';
+
+  // Bloc 1 — Colonnes du pipeline
+  html += '<div class="settings-section">';
   html += '<h3>' + t('kanbanColumnsConfig') + '</h3>';
   html += '<p class="settings-hint">' + (currentLang === 'fr' ? 'Personnalisez les étapes de votre pipeline commercial (nom et couleur).' : 'Customize your pipeline stages.') + '</p>';
   html += '<div id="kanban-status-list">' + renderKanbanStatusList() + '</div>';
   html += '<button class="btn btn-secondary" onclick="addKanbanStatusDraft()">+ ' + (currentLang === 'fr' ? 'Ajouter une étape' : 'Add a stage') + '</button>';
   html += '<button class="btn btn-primary" style="margin-left:8px;" onclick="commitKanbanStatuses()">' + t('save') + '</button>';
   html += '</div>';
+
+  // Bloc 2 — Types de comptes
+  if (!draftAccountTypes) draftAccountTypes = JSON.parse(JSON.stringify(getAccountTypes()));
+  html += '<div class="settings-section">';
+  html += '<h3>' + (currentLang === 'fr' ? 'Types de comptes' : 'Account types') + '</h3>';
+  html += '<p class="settings-hint">' + (currentLang === 'fr'
+    ? 'Renommez les types existants ou ajoutez-en de nouveaux. Les 3 types de base ne peuvent pas être supprimés.'
+    : 'Rename existing types or add new ones. The 3 base types cannot be deleted.') + '</p>';
+  html += '<div id="account-type-list">' + renderAccountTypeList() + '</div>';
+  html += '<button class="btn btn-secondary" onclick="addAccountTypeDraft()">+ ' + (currentLang === 'fr' ? 'Ajouter un type' : 'Add a type') + '</button>';
+  html += '<button class="btn btn-primary" style="margin-left:8px;" onclick="commitAccountTypes()">' + t('save') + '</button>';
+  html += '</div>';
+
+  html += '</div>'; // fin .settings-row-2col
 
   html += '<div class="settings-section">';
   html += '<h3>' + (currentLang === 'fr' ? 'Équipe' : 'Team') + '</h3>';
@@ -2945,6 +3224,7 @@ function renderSettingsView() {
   html += renderEmailTemplateEditor('relance', currentLang === 'fr' ? 'Relance' : 'Follow-up');
   html += renderEmailTemplateEditor('contrat', currentLang === 'fr' ? 'Envoi de contrat' : 'Send contract');
   html += renderEmailTemplateEditor('generique', currentLang === 'fr' ? 'Email générique' : 'Generic email');
+  html += renderEmailTemplateEditor('prospection', currentLang === 'fr' ? 'Prospection' : 'Prospecting');
   html += '<button class="btn btn-primary" onclick="commitEmailTemplates()">' + t('save') + '</button>';
   html += '</div>';
 
@@ -2957,6 +3237,10 @@ function renderSettingsView() {
   html += '<input id="webhook-url-input" type="text" placeholder="https://votre-service.exemple.com/webhook" value="' + sanitize(getWebhookUrl()) + '" style="flex:1;min-width:300px;">';
   html += '<button class="btn btn-primary" onclick="commitWebhookUrl()">' + t('save') + '</button>';
   html += '</div>';
+  html += '<p class="settings-hint" style="margin-top:10px;">' + (currentLang === 'fr'
+    ? 'Colonnes de file d’attente (Email_Status, Email_Sujet, Email_Corps, Email_Destinataire) absentes sur CRM_Comptes ? Forcez leur création :'
+    : 'Queue columns (Email_Status, Email_Sujet, Email_Corps, Email_Destinataire) missing on CRM_Comptes? Force creation:') + '</p>';
+  html += '<button class="btn btn-secondary" onclick="retryEmailQueueMigration()">' + (currentLang === 'fr' ? 'Vérifier / créer les colonnes' : 'Check / create columns') + '</button>';
   html += '</div>';
 
   html += '<div class="settings-section">';
@@ -3134,6 +3418,7 @@ function restoreActiveTab() {
 }
 
 function refreshAllViews() {
+  refreshTypeSelects();
   updateStatsBadges();
   if (currentTab === 'kanban') renderKanbanView();
   else if (currentTab === 'table') renderTableView();

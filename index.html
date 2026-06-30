@@ -172,19 +172,32 @@
     .kanban-column { flex: 1 0 240px; min-width: 240px; max-width: 320px; }
     .kanban-col-header {
       display: flex; justify-content: space-between; align-items: center;
-      background: white; padding: 11px 14px; border-radius: 10px 10px 0 0;
-      font-weight: 700; font-size: 14px; border: 2px solid var(--color-border); border-bottom: none;
+      background: var(--color-bg-soft);
+      padding: 13px 15px;
+      min-height: 54px;
+      border-radius: 10px 10px 0 0;
+      font-weight: 900; font-size: 15px;
+      color: var(--color-primary);
+      border: 2px solid var(--color-primary);
+      border-bottom: 3px solid var(--kanban-col-color, var(--color-primary));
     }
+    .kanban-col-header-left { display: flex; align-items: center; gap: 8px; min-width: 0; line-height: 1.1; }
     .kanban-count {
-      background: var(--color-bg-soft); color: var(--color-text-muted); font-size: 12px; font-weight: 700;
-      padding: 1px 9px; border-radius: 10px;
+      background: white;
+      color: var(--color-primary);
+      font-size: 12px; font-weight: 900;
+      padding: 2px 9px;
+      border-radius: 999px;
+      border: 2px solid var(--color-primary);
+      white-space: nowrap;
     }
     .kanban-cards {
-      background: var(--color-bg-soft); border-radius: 0 0 10px 10px; padding: 9px; min-height: 80px;
+      background: linear-gradient(180deg, rgba(238,255,238,.6), rgba(251,255,251,.9));
+      border-radius: 0 0 10px 10px; padding: 9px; min-height: 80px;
       display: flex; flex-direction: column; gap: 9px; transition: background 0.15s;
-      border: 2px solid var(--color-border); border-top: none;
+      border: 2px solid var(--color-primary); border-top: none;
     }
-    .kanban-cards.drag-over { background: var(--color-accent-mint); }
+    .kanban-cards.drag-over { background: var(--color-accent-mint); outline: 3px dashed var(--color-accent-cyan); outline-offset: -8px; }
     .kanban-empty { text-align: center; color: var(--color-text-muted); font-size: 13px; padding: 16px 0; }
 
     .compte-card {
@@ -239,10 +252,17 @@
     .relance-days { color: var(--color-text-muted); font-weight: 400; }
 
     /* ===== STATS ===== */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .stat-card { background: white; border-radius: var(--radius-md); padding: 15px 17px; border: 2px solid var(--color-border); }
-    .stat-value { font-size: 28px; font-weight: 800; }
-    .stat-label { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .stat-card {
+      background: #FBFFFA;
+      border-radius: 12px;
+      padding: 12px 16px;
+      border: 3px solid var(--color-primary);
+      box-shadow: 5px 5px 0 #86cfd7;
+      border-left: 3px solid var(--color-primary) !important;
+    }
+    .stat-value { font-size: 28px; font-weight: 900; color: var(--color-accent-cyan); line-height: 1; }
+    .stat-label { font-size: 11px; color: var(--color-primary); font-weight: 800; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.03em; }
     .stats-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
     .chart-card { background: white; border-radius: var(--radius-md); padding: 17px; border: 2px solid var(--color-border); }
     .chart-card h4 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
@@ -312,9 +332,12 @@
     .comment-content { font-size: 14px; white-space: pre-wrap; }
     .comment-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; }
     .comment-actions .btn-icon-small { position: static; }
+    .comment-actions .btn-icon-small:first-child { display: inline-block; transform: scaleX(-1); }
 
     /* ===== SETTINGS ===== */
-    .settings-section { background: white; border-radius: var(--radius-md); padding: 17px; margin-bottom: 14px; border: 2px solid var(--color-border); }
+    .settings-section { background: white; border-radius: var(--radius-md); padding: 17px; margin-bottom: 14px; border: 2px solid #271A79; }
+    .settings-row-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .settings-row-2col .settings-section { margin-bottom: 0; }
     .settings-section h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
     .settings-hint { font-size: 12px; color: var(--color-text-muted); margin-bottom: 12px; }
     .kanban-status-edit-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; padding: 4px; border-radius: 8px; transition: background 0.15s, opacity 0.15s; }
@@ -373,7 +396,7 @@
 
     <div class="tab-content active" id="tab-kanban">
       <div class="kanban-toolbar">
-        <select onchange="setFilterType(this.value)">
+        <select id="kanban-type-select" onchange="setFilterType(this.value)">
           <option value="">Tous types</option>
           <option value="client">Client</option>
           <option value="prospect">Prospect</option>
@@ -393,6 +416,7 @@
           <option value="prospect">Prospect</option>
           <option value="ancien">Ancien client</option>
         </select>
+
         <select id="table-filter-status" onchange="renderTableView()"><option value="">Tous statuts</option></select>
         <select id="table-filter-responsible" onchange="renderTableView()"><option value="">Tous responsables</option></select>
       </div>
@@ -416,6 +440,6 @@
   <div id="modal-container" class="hidden"></div>
   <div id="toast-container"></div>
 
-  <script src="widget.js?v=5"></script>
+  <script src="widget.js?t=20260630a"></script>
 </body>
 </html>

@@ -2526,7 +2526,7 @@ function renderStatsView() {
   html += '</div>';
 
   html += '<div class="stats-charts">';
-  html += renderPipelineChart(prospects);
+  html += renderPipelineChart(comptes);
   html += renderPriorityChart();
   html += renderCAPipelinePieChart();
   html += '</div>';
@@ -2805,7 +2805,10 @@ function renderFicheTab(compte) {
   html += '<span class="status-badge" style="background:' + getStatusColor(compte.Status) + '22;color:' + getStatusColor(compte.Status) + ';">● ' + sanitize(getStatusLabel(compte.Status)) + '</span>';
   html += '<span class="priority-dot dot-' + compte.Priority + '"></span> ' + sanitize(t('priority' + capitalize(compte.Priority)));
   html += '</div></div>';
+  html += '<div class="fiche-header-actions">';
   html += '<button class="btn btn-primary" onclick="switchModalTab(\'info\', ' + compte.id + ')">✏️ ' + (fr ? 'Modifier' : 'Edit') + '</button>';
+  if (isOwner) html += '<button class="btn btn-danger" onclick="deleteCompte(' + compte.id + ')">🗑️ ' + t('delete') + '</button>';
+  html += '</div>';
   html += '</div>';
 
   html += '<div class="fiche-cards-grid">';

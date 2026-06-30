@@ -2741,40 +2741,76 @@ function buildStatusOptions(selectedKey) {
 }
 
 // --- Fiche (lecture seule) ---
-function ficheField(label, value) {
-  return '<div class="fiche-field"><span class="fiche-field-label">' + sanitize(label) + '</span><span class="fiche-field-value">' + (value ? sanitize(value) : '—') + '</span></div>';
+function ficheRow(label, value, isLink) {
+  var display = value ? sanitize(value) : '<span class="fiche-row-empty">—</span>';
+  if (value && isLink === 'tel') display = '<a href="tel:' + sanitize(value.replace(/\s+/g, '')) + '" class="fiche-link">📞 ' + sanitize(value) + '</a>';
+  else if (value && isLink === 'mail') display = '<a href="mailto:' + sanitize(value) + '" class="fiche-link">✉️ ' + sanitize(value) + '</a>';
+  else if (value && isLink === 'web') {
+    var href = value.indexOf('http') === 0 ? value : 'https://' + value;
+    display = '<a href="' + sanitize(href) + '" target="_blank" rel="noopener" class="fiche-link">🌐 ' + sanitize(value) + '</a>';
+  }
+  return '<div class="fiche-row"><span class="fiche-row-label">' + sanitize(label) + '</span><span class="fiche-row-value">' + display + '</span></div>';
+}
+
+function ficheCard(icon, title, rowsHtml) {
+  return '<div class="fiche-card"><h4 class="fiche-card-title">' + icon + ' ' + sanitize(title) + '</h4>' + rowsHtml + '</div>';
 }
 
 function renderFicheTab(compte) {
   var primaryContact = getPrimaryContact(compte.id);
+  var initial = (compte.Name || '?').trim().charAt(0).toUpperCase();
+  var fr = currentLang === 'fr';
+
   var html = '<div class="fiche-header">';
-  html += '<button class="btn btn-primary" onclick="switchModalTab(\'info\', ' + compte.id + ')">✏️ ' + (currentLang === 'fr' ? 'Modifier' : 'Edit') + '</button>';
+  html += '<div class="fiche-avatar" style="background:' + (getAccountTypes().find(function(tp){return tp.key===compte.Type;}) || {}).color || '#42B6C8' + ';">' + initial + '</div>';
+  html += '<div class="fiche-header-main">';
+  html += '<div class="fiche-header-name">' + sanitize(compte.Name || '—') + '</div>';
+  html += '<div class="fiche-header-badges">';
+  html += '<span class="type-badge type-' + compte.Type + '">' + sanitize(getAccountTypeLabel(compte.Type)) + '</span>';
+  html += '<span class="status-badge" style="background:' + getStatusColor(compte.Status) + '22;color:' + getStatusColor(compte.Status) + ';">● ' + sanitize(getStatusLabel(compte.Status)) + '</span>';
+  html += '<span class="priority-dot dot-' + compte.Priority + '"></span> ' + sanitize(t('priority' + capitalize(compte.Priority)));
+  html += '</div></div>';
+  html += '<button class="btn btn-primary" onclick="switchModalTab(\'info\', ' + compte.id + ')">✏️ ' + (fr ? 'Modifier' : 'Edit') + '</button>';
   html += '</div>';
 
-  html += '<div class="fiche-grid">';
-  html += ficheField(t('fieldName'), compte.Name);
-  html += ficheField(t('fieldType'), getAccountTypeLabel(compte.Type));
-  html += ficheField(t('fieldStatus'), getStatusLabel(compte.Status));
-  html += ficheField(t('fieldPriority'), t('priority' + capitalize(compte.Priority)));
-  html += ficheField(t('fieldResponsible'), getEquipeMemberName(compte.Responsible));
-  html += ficheField(t('fieldAmount'), formatAmount(compte.Amount));
-  html += ficheField(t('fieldContractsTotal'), formatAmount(getSignedContractsTotal(compte.id)));
-  html += ficheField(t('fieldNextAction'), compte.Next_Action);
-  html += ficheField(t('fieldNextActionDate'), compte.Next_Action_Date ? formatDate(compte.Next_Action_Date) : '');
-  html += ficheField(t('fieldRelanceDate'), compte.Relance_Date ? formatDate(compte.Relance_Date) : '');
-  html += ficheField(t('fieldCategory'), compte.Category);
-  html += ficheField(t('fieldTag'), compte.Tag);
-  html += ficheField(t('fieldWebsite'), compte.Website);
-  html += ficheField(t('fieldAddressStreet'), compte.Address_Street);
-  html += ficheField(t('fieldAddressZip'), compte.Address_Zip);
-  html += ficheField(t('fieldAddressCity'), compte.Address_City);
-  html += ficheField(currentLang === 'fr' ? 'Contact principal' : 'Primary contact', primaryContact ? primaryContact.Name : '');
-  html += ficheField(currentLang === 'fr' ? 'Email du contact' : 'Contact email', primaryContact ? primaryContact.Email : '');
-  html += ficheField(currentLang === 'fr' ? 'Téléphone du contact' : 'Contact phone', primaryContact ? primaryContact.Phone : '');
+  html += '<div class="fiche-cards-grid">';
+
+  html += ficheCard('👤', fr ? 'Contact principal' : 'Primary contact',
+    ficheRow(fr ? 'Nom' : 'Name', primaryContact ? primaryContact.Name : '') +
+    ficheRow(fr ? 'Email' : 'Email', primaryContact ? primaryContact.Email : '', 'mail') +
+    ficheRow(fr ? 'Téléphone' : 'Phone', primaryContact ? primaryContact.Phone : '', 'tel') +
+    ficheRow(t('fieldWebsite'), compte.Website, 'web')
+  );
+
+  html += ficheCard('💼', fr ? 'Informations commerciales' : 'Business info',
+    ficheRow(t('fieldStatus'), getStatusLabel(compte.Status)) +
+    ficheRow(t('fieldResponsible'), getEquipeMemberName(compte.Responsible)) +
+    ficheRow(t('fieldAmount'), formatAmount(compte.Amount)) +
+    ficheRow(t('fieldContractsTotal'), formatAmount(getSignedContractsTotal(compte.id)))
+  );
+
+  html += ficheCard('📅', fr ? 'Suivi & relances' : 'Follow-up',
+    ficheRow(t('fieldNextAction'), compte.Next_Action) +
+    ficheRow(t('fieldNextActionDate'), compte.Next_Action_Date ? formatDate(compte.Next_Action_Date) : '') +
+    ficheRow(t('fieldRelanceDate'), compte.Relance_Date ? formatDate(compte.Relance_Date) : '') +
+    ficheRow(fr ? 'Créé le' : 'Created on', compte.Created_At ? formatDate(compte.Created_At) : '')
+  );
+
+  html += ficheCard('📍', fr ? 'Adresse' : 'Address',
+    ficheRow(t('fieldAddressStreet'), compte.Address_Street) +
+    ficheRow(t('fieldAddressZip'), compte.Address_Zip) +
+    ficheRow(t('fieldAddressCity'), compte.Address_City)
+  );
+
+  html += ficheCard('🏷️', fr ? 'Catégorisation' : 'Categorization',
+    ficheRow(t('fieldCategory'), compte.Category) +
+    ficheRow(t('fieldTag'), compte.Tag)
+  );
+
   html += '</div>';
 
   if (compte.Description) {
-    html += '<div class="fiche-field-full"><span class="fiche-field-label">' + sanitize(t('fieldDescription')) + '</span><div class="fiche-description">' + sanitize(compte.Description) + '</div></div>';
+    html += ficheCard('📝', t('fieldDescription'), '<div class="fiche-description">' + sanitize(compte.Description) + '</div>');
   }
   return html;
 }

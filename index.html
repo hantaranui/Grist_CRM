@@ -303,12 +303,37 @@
     }
     .form-field textarea { resize: vertical; }
 
-    .fiche-header { display: flex; justify-content: flex-end; margin-bottom: 14px; }
-    .fiche-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .fiche-field { display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--color-bg-soft); }
-    .fiche-field-label { font-size: 11px; font-weight: 800; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-    .fiche-field-value { font-size: 14px; font-weight: 600; color: var(--color-primary); }
-    .fiche-field-full { margin-top: 16px; }
+    .fiche-header {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 20px;
+      padding: 16px 18px; background: var(--color-bg-soft); border-radius: 14px;
+      border: 2px solid var(--color-primary);
+    }
+    .fiche-avatar {
+      width: 56px; height: 56px; min-width: 56px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 900; color: var(--color-primary);
+      border: 2px solid var(--color-primary); box-shadow: 3px 3px 0 #271A79;
+    }
+    .fiche-header-main { flex: 1; min-width: 0; }
+    .fiche-header-name { font-size: 20px; font-weight: 900; color: var(--color-primary); margin-bottom: 6px; }
+    .fiche-header-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--color-text-muted); }
+
+    .fiche-cards-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .fiche-card {
+      background: #FBFFFA; border-radius: 12px; padding: 14px 16px;
+      border: 2px solid var(--color-primary); box-shadow: 4px 4px 0 #B9FFB7;
+    }
+    .fiche-card-title {
+      font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em;
+      color: var(--color-primary); margin-bottom: 10px; padding-bottom: 8px;
+      border-bottom: 2px solid var(--color-bg-soft);
+    }
+    .fiche-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; }
+    .fiche-row-label { font-size: 12px; font-weight: 700; color: var(--color-text-muted); white-space: nowrap; }
+    .fiche-row-value { font-size: 13px; font-weight: 600; color: var(--color-primary); text-align: right; overflow: hidden; text-overflow: ellipsis; }
+    .fiche-row-empty { color: var(--color-text-muted); font-weight: 400; }
+    .fiche-link { color: var(--color-accent-cyan); text-decoration: none; font-weight: 700; }
+    .fiche-link:hover { text-decoration: underline; }
     .fiche-description { font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin-top: 4px; }
 
     .add-form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }

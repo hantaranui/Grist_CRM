@@ -282,11 +282,15 @@
       background: rgba(39,26,121,0.45); display: flex; align-items: center; justify-content: center;
       z-index: 1000; padding: 20px;
     }
-    .modal { background: white; border-radius: 16px; max-width: 640px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; border: 2px solid var(--color-primary); box-shadow: 0 20px 50px rgba(39,26,121,0.3); }
+    .modal { background: white; border-radius: 16px; max-width: 640px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; border: 2px solid var(--color-primary); box-shadow: 0 20px 50px rgba(39,26,121,0.3); transition: max-width 0.2s, max-height 0.2s; }
     .modal-small { max-width: 420px; }
     .modal-large { max-width: 720px; }
+    .modal-expanded { max-width: 1100px; max-height: 94vh; }
     .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; border-bottom: 2px solid var(--color-bg-soft); }
     .modal-header h2 { font-size: 19px; font-weight: 700; }
+    .modal-header-actions { display: flex; align-items: center; gap: 6px; }
+    .modal-expand-btn { background: none; border: 2px solid var(--color-border); border-radius: 7px; font-size: 14px; cursor: pointer; color: var(--color-text-muted); padding: 4px 8px; }
+    .modal-expand-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
     .modal-close { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--color-text-muted); }
     .modal-tabs { display: flex; gap: 4px; padding: 10px 22px 0; border-bottom: 2px solid var(--color-bg-soft); flex-wrap: wrap; }
     .modal-tab-btn { padding: 9px 13px; border: none; background: none; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--color-text-muted); cursor: pointer; border-radius: 7px 7px 0 0; }
@@ -302,6 +306,11 @@
       padding: 9px 11px; border: 2px solid var(--color-border); border-radius: 9px; font-size: 14px; font-family: inherit;
     }
     .form-field textarea { resize: vertical; }
+    .form-section-title {
+      font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em;
+      color: var(--color-primary); margin: 18px 0 4px;
+    }
+    .form-section-title:first-child { margin-top: 0; }
 
     .fiche-header {
       display: flex; align-items: center; gap: 16px; margin-bottom: 20px;
@@ -323,6 +332,7 @@
       background: #FBFFFA; border-radius: 12px; padding: 14px 16px;
       border: 2px solid var(--color-primary); box-shadow: 4px 4px 0 #B9FFB7;
     }
+    .fiche-card-full { margin-top: 14px; }
     .fiche-card-title {
       font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em;
       color: var(--color-primary); margin-bottom: 10px; padding-bottom: 8px;

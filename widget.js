@@ -1345,9 +1345,29 @@ async function saveCompteFromModal(compteId) {
   setField(record, 'comptes', 'addressZip', getVal('compte-address-zip', ''));
   setField(record, 'comptes', 'addressCity', getVal('compte-address-city', ''));
 
+  var contactName = getVal('compte-contact-name', '').trim();
+  var contactEmail = getVal('compte-contact-email', '').trim();
+  var contactPhone = getVal('compte-contact-phone', '').trim();
+
   try {
     var oldCompte = getCompteById(compteId);
     await grist.docApi.applyUserActions([['UpdateRecord', COMPTES_TABLE, compteId, record]]);
+
+    if (contactName) {
+      var existingPrimary = getPrimaryContact(compteId);
+      var contactRecord = {};
+      setField(contactRecord, 'contacts', 'name', contactName);
+      setField(contactRecord, 'contacts', 'email', contactEmail);
+      setField(contactRecord, 'contacts', 'phone', contactPhone);
+      if (existingPrimary) {
+        await grist.docApi.applyUserActions([['UpdateRecord', CONTACTS_TABLE, existingPrimary.id, contactRecord]]);
+      } else {
+        setField(contactRecord, 'contacts', 'isPrimary', true);
+        contactRecord.Compte_Id = compteId;
+        await grist.docApi.applyUserActions([['AddRecord', CONTACTS_TABLE, null, contactRecord]]);
+      }
+    }
+
     showToast(t('compteUpdated'), 'success');
     var changes = [];
     if (oldCompte && oldCompte.Status !== record[getColumnName('comptes', 'status')]) {
@@ -2643,6 +2663,13 @@ function drawCAPipelinePieChart() {
 // =============================================================================
 
 var editModalActiveTab = 'fiche';
+var modalExpanded = false;
+
+function toggleModalExpand(compteId) {
+  captureInfoDraftIfPresent();
+  modalExpanded = !modalExpanded;
+  openEditCompteModal(compteId, true);
+}
 var editModalDraft = null; // capture les champs du formulaire "info" lors d'un changement d'onglet, pour ne pas perdre la saisie
 
 function captureInfoDraftIfPresent() {
@@ -2664,7 +2691,10 @@ function captureInfoDraftIfPresent() {
     website: getVal('compte-website', ''),
     addressStreet: getVal('compte-address-street', ''),
     addressZip: getVal('compte-address-zip', ''),
-    addressCity: getVal('compte-address-city', '')
+    addressCity: getVal('compte-address-city', ''),
+    contactName: getVal('compte-contact-name', ''),
+    contactEmail: getVal('compte-contact-email', ''),
+    contactPhone: getVal('compte-contact-phone', '')
   };
 }
 
@@ -2680,10 +2710,13 @@ function openEditCompteModal(compteId, keepTab) {
 
 function renderCompteModal(compte) {
   var html = '<div class="modal-overlay" onclick="if(event.target===this) closeModal()">';
-  html += '<div class="modal modal-large">';
+  html += '<div class="modal modal-large' + (modalExpanded ? ' modal-expanded' : '') + '">';
   html += '<div class="modal-header">';
   html += '<h2>' + sanitize(compte.Name || t('modalEditCompte')) + '</h2>';
+  html += '<div class="modal-header-actions">';
+  html += '<button class="modal-expand-btn" title="' + (currentLang === 'fr' ? 'Agrandir / réduire' : 'Expand / collapse') + '" onclick="toggleModalExpand(' + compte.id + ')">' + (modalExpanded ? '⤡' : '⤢') + '</button>';
   html += '<button class="modal-close" onclick="closeModal()">✕</button>';
+  html += '</div>';
   html += '</div>';
 
   html += '<div class="modal-actions-bar">';
@@ -2700,7 +2733,7 @@ function renderCompteModal(compte) {
   ['fiche', 'info', 'contacts', 'contrats', 'comments', 'tasks'].forEach(function(tab) {
     var labels = {
       fiche: currentLang === 'fr' ? 'Informations' : 'Info',
-      info: currentLang === 'fr' ? 'Éditer le contact' : 'Edit contact',
+      info: currentLang === 'fr' ? 'Modifier' : 'Edit',
       contacts: t('contactsTitle'), contrats: t('contractsTitle'), comments: t('commentsTitle'), tasks: t('tasksTitle')
     };
     html += '<button class="modal-tab-btn ' + (editModalActiveTab === tab ? 'active' : '') + '" onclick="switchModalTab(\'' + tab + '\', ' + compte.id + ')">' + labels[tab] + '</button>';
@@ -2753,8 +2786,8 @@ function ficheRow(label, value, isLink) {
   return '<div class="fiche-row"><span class="fiche-row-label">' + sanitize(label) + '</span><span class="fiche-row-value">' + display + '</span></div>';
 }
 
-function ficheCard(icon, title, rowsHtml) {
-  return '<div class="fiche-card"><h4 class="fiche-card-title">' + icon + ' ' + sanitize(title) + '</h4>' + rowsHtml + '</div>';
+function ficheCard(icon, title, rowsHtml, extraClass) {
+  return '<div class="fiche-card' + (extraClass ? ' ' + extraClass : '') + '"><h4 class="fiche-card-title">' + icon + ' ' + sanitize(title) + '</h4>' + rowsHtml + '</div>';
 }
 
 function renderFicheTab(compte) {
@@ -2812,7 +2845,7 @@ function renderFicheTab(compte) {
   html += '</div>';
 
   if (compte.Description) {
-    html += ficheCard('📝', t('fieldDescription'), '<div class="fiche-description">' + sanitize(compte.Description) + '</div>');
+    html += ficheCard('📝', t('fieldDescription'), '<div class="fiche-description">' + sanitize(compte.Description) + '</div>', 'fiche-card-full');
   }
   return html;
 }
@@ -2835,8 +2868,24 @@ function renderInfoTab(compte) {
   var vAddressStreet = d ? d.addressStreet : compte.Address_Street;
   var vAddressZip = d ? d.addressZip : compte.Address_Zip;
   var vAddressCity = d ? d.addressCity : compte.Address_City;
+  var primaryContact = getPrimaryContact(compte.id);
+  var vContactName = d ? d.contactName : (primaryContact ? primaryContact.Name : '');
+  var vContactEmail = d ? d.contactEmail : (primaryContact ? primaryContact.Email : '');
+  var vContactPhone = d ? d.contactPhone : (primaryContact ? primaryContact.Phone : '');
+  var fr2 = currentLang === 'fr';
 
-  var html = '<div class="form-grid">';
+  var html = '<h4 class="form-section-title">' + (fr2 ? 'Contact principal' : 'Primary contact') + '</h4>';
+  html += '<p class="settings-hint">' + (fr2
+    ? 'Pour gérer plusieurs contacts ou changer lequel est principal, utilisez l’onglet Contacts.'
+    : 'To manage several contacts or change who is primary, use the Contacts tab.') + '</p>';
+  html += '<div class="form-grid">';
+  html += formField(fr2 ? 'Nom du contact' : 'Contact name', '<input id="compte-contact-name" type="text" value="' + sanitize(vContactName) + '">');
+  html += formField(fr2 ? 'Email du contact' : 'Contact email', '<input id="compte-contact-email" type="email" value="' + sanitize(vContactEmail) + '">');
+  html += formField(fr2 ? 'Téléphone du contact' : 'Contact phone', '<input id="compte-contact-phone" type="text" value="' + sanitize(vContactPhone) + '">');
+  html += '</div>';
+
+  html += '<h4 class="form-section-title">' + (fr2 ? 'Informations du compte' : 'Account information') + '</h4>';
+  html += '<div class="form-grid">';
   html += formField(t('fieldName'), '<input id="compte-name" type="text" value="' + sanitize(vName) + '">');
   html += formField(t('fieldType'), '<select id="compte-type">' +
     getAccountTypes().map(function(tp) { return '<option value="' + tp.key + '"' + (vType === tp.key ? ' selected' : '') + '>' + sanitize(tp.label) + '</option>'; }).join('') +

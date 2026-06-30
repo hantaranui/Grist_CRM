@@ -2641,7 +2641,7 @@ function drawCAPipelinePieChart() {
 // MODAL — FICHE COMPTE (édition complète : infos, contacts, contrats, notes, tâches)
 // =============================================================================
 
-var editModalActiveTab = 'info';
+var editModalActiveTab = 'fiche';
 var editModalDraft = null; // capture les champs du formulaire "info" lors d'un changement d'onglet, pour ne pas perdre la saisie
 
 function captureInfoDraftIfPresent() {
@@ -2670,7 +2670,7 @@ function captureInfoDraftIfPresent() {
 function openEditCompteModal(compteId, keepTab) {
   var compte = getCompteById(compteId);
   if (!compte) return;
-  if (!keepTab) { editModalActiveTab = 'info'; editModalDraft = null; }
+  if (!keepTab) { editModalActiveTab = 'fiche'; editModalDraft = null; }
 
   var modalContainer = document.getElementById('modal-container');
   modalContainer.innerHTML = renderCompteModal(compte);
@@ -2696,14 +2696,19 @@ function renderCompteModal(compte) {
   html += '</div>';
 
   html += '<div class="modal-tabs">';
-  ['info', 'contacts', 'contrats', 'comments', 'tasks'].forEach(function(tab) {
-    var labels = { info: currentLang === 'fr' ? 'Informations' : 'Info', contacts: t('contactsTitle'), contrats: t('contractsTitle'), comments: t('commentsTitle'), tasks: t('tasksTitle') };
+  ['fiche', 'info', 'contacts', 'contrats', 'comments', 'tasks'].forEach(function(tab) {
+    var labels = {
+      fiche: currentLang === 'fr' ? 'Informations' : 'Info',
+      info: currentLang === 'fr' ? 'Éditer le contact' : 'Edit contact',
+      contacts: t('contactsTitle'), contrats: t('contractsTitle'), comments: t('commentsTitle'), tasks: t('tasksTitle')
+    };
     html += '<button class="modal-tab-btn ' + (editModalActiveTab === tab ? 'active' : '') + '" onclick="switchModalTab(\'' + tab + '\', ' + compte.id + ')">' + labels[tab] + '</button>';
   });
   html += '</div>';
 
   html += '<div class="modal-body">';
-  if (editModalActiveTab === 'info') html += renderInfoTab(compte);
+  if (editModalActiveTab === 'fiche') html += renderFicheTab(compte);
+  else if (editModalActiveTab === 'info') html += renderInfoTab(compte);
   else if (editModalActiveTab === 'contacts') html += renderContactsTab(compte);
   else if (editModalActiveTab === 'contrats') html += renderContractsTab(compte);
   else if (editModalActiveTab === 'comments') html += renderCommentsTab(compte);
@@ -2733,6 +2738,45 @@ function buildStatusOptions(selectedKey) {
   return getKanbanStatuses().map(function(s) {
     return '<option value="' + s.key + '"' + (selectedKey === s.key ? ' selected' : '') + '>' + sanitize(s.label) + '</option>';
   }).join('');
+}
+
+// --- Fiche (lecture seule) ---
+function ficheField(label, value) {
+  return '<div class="fiche-field"><span class="fiche-field-label">' + sanitize(label) + '</span><span class="fiche-field-value">' + (value ? sanitize(value) : '—') + '</span></div>';
+}
+
+function renderFicheTab(compte) {
+  var primaryContact = getPrimaryContact(compte.id);
+  var html = '<div class="fiche-header">';
+  html += '<button class="btn btn-primary" onclick="switchModalTab(\'info\', ' + compte.id + ')">✏️ ' + (currentLang === 'fr' ? 'Modifier' : 'Edit') + '</button>';
+  html += '</div>';
+
+  html += '<div class="fiche-grid">';
+  html += ficheField(t('fieldName'), compte.Name);
+  html += ficheField(t('fieldType'), getAccountTypeLabel(compte.Type));
+  html += ficheField(t('fieldStatus'), getStatusLabel(compte.Status));
+  html += ficheField(t('fieldPriority'), t('priority' + capitalize(compte.Priority)));
+  html += ficheField(t('fieldResponsible'), getEquipeMemberName(compte.Responsible));
+  html += ficheField(t('fieldAmount'), formatAmount(compte.Amount));
+  html += ficheField(t('fieldContractsTotal'), formatAmount(getSignedContractsTotal(compte.id)));
+  html += ficheField(t('fieldNextAction'), compte.Next_Action);
+  html += ficheField(t('fieldNextActionDate'), compte.Next_Action_Date ? formatDate(compte.Next_Action_Date) : '');
+  html += ficheField(t('fieldRelanceDate'), compte.Relance_Date ? formatDate(compte.Relance_Date) : '');
+  html += ficheField(t('fieldCategory'), compte.Category);
+  html += ficheField(t('fieldTag'), compte.Tag);
+  html += ficheField(t('fieldWebsite'), compte.Website);
+  html += ficheField(t('fieldAddressStreet'), compte.Address_Street);
+  html += ficheField(t('fieldAddressZip'), compte.Address_Zip);
+  html += ficheField(t('fieldAddressCity'), compte.Address_City);
+  html += ficheField(currentLang === 'fr' ? 'Contact principal' : 'Primary contact', primaryContact ? primaryContact.Name : '');
+  html += ficheField(currentLang === 'fr' ? 'Email du contact' : 'Contact email', primaryContact ? primaryContact.Email : '');
+  html += ficheField(currentLang === 'fr' ? 'Téléphone du contact' : 'Contact phone', primaryContact ? primaryContact.Phone : '');
+  html += '</div>';
+
+  if (compte.Description) {
+    html += '<div class="fiche-field-full"><span class="fiche-field-label">' + sanitize(t('fieldDescription')) + '</span><div class="fiche-description">' + sanitize(compte.Description) + '</div></div>';
+  }
+  return html;
 }
 
 function renderInfoTab(compte) {

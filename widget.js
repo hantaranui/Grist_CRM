@@ -334,6 +334,7 @@ async function commitAccountTypes() {
   refreshTypeSelects();
   var listEl = document.getElementById('account-type-list');
   if (listEl) listEl.innerHTML = renderAccountTypeList();
+  await syncChoiceColumnOptions(COMPTES_TABLE, getColumnName('comptes', 'type'), newTypes);
   showToast(currentLang === 'fr' ? 'Types de comptes enregistrés' : 'Account types saved', 'success');
 }
 
@@ -469,6 +470,10 @@ async function loadSettings() {
       try { customAccountTypes = JSON.parse(_settingsCache.account_types.value); } catch (e) {}
     }
     applyAccountTypeStyles();
+    // Re-synchronise les listes de choix Grist (Type, Statut) avec les valeurs personnalisées
+    // enregistrées, au cas où l'ajout précédent n'aurait pas mis à jour la colonne native.
+    syncChoiceColumnOptions(COMPTES_TABLE, getColumnName('comptes', 'type'), getAccountTypes());
+    syncChoiceColumnOptions(COMPTES_TABLE, getColumnName('comptes', 'status'), getKanbanStatuses());
     if (_settingsCache.equipe_roles) {
       try { customEquipeRoles = JSON.parse(_settingsCache.equipe_roles.value); } catch (e) {}
     }
@@ -613,6 +618,24 @@ function setField(record, entity, field, value) {
 // =============================================================================
 // INIT — CREATE TABLES IF NEEDED
 // =============================================================================
+
+// Synchronise la liste de choix (widgetOptions.choices) d'une colonne Grist de type Choice,
+// pour que les valeurs personnalisées (types de comptes, étapes du pipeline) apparaissent
+// dans le menu déroulant natif de Grist, et pas seulement comme texte libre.
+async function syncChoiceColumnOptions(tableName, columnName, items) {
+  try {
+    var choices = items.map(function(it) { return it.key; });
+    var choiceOptions = {};
+    items.forEach(function(it) {
+      choiceOptions[it.key] = { fillColor: it.color || '#CCCCCC', textColor: '#271A79' };
+    });
+    await grist.docApi.applyUserActions([
+      ['ModifyColumn', tableName, columnName, { widgetOptions: JSON.stringify({ choices: choices, choiceOptions: choiceOptions }) }]
+    ]);
+  } catch (e) {
+    console.error('[CRM] Échec synchronisation des choix pour ' + tableName + '.' + columnName + ' :', e.message);
+  }
+}
 
 // Ajoute les colonnes Email_Status/Email_Sujet/Email_Corps/Email_Destinataire sur CRM_Comptes
 // si elles n'existent pas encore (documents créés avant cette fonctionnalité).
@@ -3384,6 +3407,7 @@ function removeKanbanStatusDraft(index) {
 async function commitKanbanStatuses() {
   customKanbanStatuses = draftKanbanStatuses;
   await saveKanbanStatuses();
+  await syncChoiceColumnOptions(COMPTES_TABLE, getColumnName('comptes', 'status'), customKanbanStatuses);
   showToast(currentLang === 'fr' ? 'Pipeline mis à jour' : 'Pipeline updated', 'success');
   refreshAllViews();
 }

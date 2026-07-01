@@ -1729,6 +1729,23 @@ async function addCrmTask(compteId) {
   }
 }
 
+async function clearRelance(compteId) {
+  try {
+    var record = {};
+    setField(record, 'comptes', 'nextAction', '');
+    setField(record, 'comptes', 'relanceDate', null);
+    await grist.docApi.applyUserActions([['UpdateRecord', COMPTES_TABLE, compteId, record]]);
+    var compte = getCompteById(compteId);
+    logActivity('relance_handled', compteId, compte ? compte.Name : '', '');
+    showToast(currentLang === 'fr' ? 'Relance marquée comme traitée' : 'Reminder marked as handled', 'success');
+    await loadAllData();
+    openEditCompteModal(compteId, true);
+  } catch (e) {
+    console.error('[CRM] Error clearing relance:', e);
+    showToast('Erreur : ' + e.message, 'error');
+  }
+}
+
 async function toggleCrmTask(taskId, compteId, done) {
   try {
     await grist.docApi.applyUserActions([['UpdateRecord', TACHES_TABLE, taskId, { Statut: done ? 'fait' : 'a_faire' }]]);
@@ -3023,8 +3040,33 @@ function renderCommentsTab(compte) {
 
 // --- Tasks tab ---
 function renderTasksTab(compte) {
+  var fr = currentLang === 'fr';
+  var html = '';
+
+  if (compte.Relance_Date || compte.Next_Action) {
+    var days = compte.Relance_Date ? daysFromNow(compte.Relance_Date) : null;
+    var daysLabel = days === null ? '' : (days < 0
+      ? Math.abs(days) + (fr ? ' j de retard' : ' days overdue')
+      : (days === 0 ? (fr ? 'aujourd’hui' : 'today') : (fr ? 'dans ' + days + ' j' : 'in ' + days + ' d')));
+    html += '<div class="relance-summary-card' + (days !== null && days < 0 ? ' relance-summary-late' : '') + '">';
+    html += '<div class="relance-summary-header">🔔 ' + (fr ? 'Relance à traiter' : 'Reminder to handle') + '</div>';
+    html += '<div class="relance-summary-body">';
+    html += '<div class="relance-summary-action">' + sanitize(compte.Next_Action || (fr ? '(aucune action précisée)' : '(no action specified)')) + '</div>';
+    if (compte.Relance_Date) {
+      html += '<div class="relance-summary-date">' + (fr ? 'Prévue le ' : 'Scheduled for ') + formatDate(compte.Relance_Date) + (daysLabel ? ' (' + daysLabel + ')' : '') + '</div>';
+    }
+    html += '</div>';
+    html += '<div class="relance-summary-actions">';
+    html += '<button class="btn btn-secondary" onclick="switchModalTab(\'info\', ' + compte.id + ')">✏️ ' + (fr ? 'Modifier' : 'Edit') + '</button>';
+    html += '<button class="btn btn-primary" onclick="clearRelance(' + compte.id + ')">✓ ' + (fr ? 'Marquer comme traitée' : 'Mark as handled') + '</button>';
+    html += '</div>';
+    html += '</div>';
+  }
+
+  html += '<h4 class="form-section-title">' + (fr ? 'Tâches' : 'Tasks') + '</h4>';
+
   var list = getTasksForCompte(compte.id).sort(function(a, b) { return (a.Due_Date || 0) - (b.Due_Date || 0); });
-  var html = '<div class="sub-list">';
+  html += '<div class="sub-list">';
   list.forEach(function(tsk) {
     html += '<div class="sub-item ' + (tsk.Status === 'fait' ? 'task-done' : '') + '">';
     html += '<div class="sub-item-main">';

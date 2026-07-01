@@ -141,6 +141,7 @@ var currentFilterPriority = null;
 var currentFilterCategory = null;
 var currentFilterTag = null;
 var kanbanSearch = '';
+var kanbanShowAll = false;
 
 var isOwner = false;
 var isEditor = false;
@@ -478,7 +479,8 @@ var defaultKanbanStatuses = [
   { key: 'premier_contact', label: 'Premier contact', color: '#3b82f6' },
   { key: 'negociation',     label: 'En négociation',  color: '#f59e0b' },
   { key: 'signature',       label: 'En signature',    color: '#8b5cf6' },
-  { key: 'signe',           label: 'Contrat signé',   color: '#22c55e' }
+  { key: 'signe',           label: 'Contrat signé',   color: '#22c55e', marksAsClient: true },
+  { key: 'perdu',           label: 'Perdu',           color: '#94a3b8', stopFollowUp: true }
 ];
 var customKanbanStatuses = null;
 function getKanbanStatuses() {
@@ -564,6 +566,22 @@ async function saveWebhookUrl(url) {
   await saveSetting('webhook_url', url);
 }
 
+function getKanbanHideClientDays() {
+  var v = _settingsCache.kanban_hide_client_days && _settingsCache.kanban_hide_client_days.value;
+  var n = parseInt(v, 10);
+  return isNaN(n) ? 7 : n;
+}
+async function saveKanbanHideClientDays(days) {
+  await saveSetting('kanban_hide_client_days', String(days));
+}
+async function commitKanbanHideClientDays() {
+  var days = parseInt(getVal('kanban-hide-client-days-input', '7'), 10);
+  if (isNaN(days) || days < 0) days = 7;
+  await saveKanbanHideClientDays(days);
+  showToast(currentLang === 'fr' ? 'Délai enregistré' : 'Delay saved', 'success');
+  renderKanbanView();
+}
+
 // =============================================================================
 // SETTINGS HELPERS (CRM_Settings — table clé/valeur)
 // =============================================================================
@@ -581,6 +599,23 @@ async function loadSettings() {
     }
     if (_settingsCache.kanban_statuses) {
       try { customKanbanStatuses = JSON.parse(_settingsCache.kanban_statuses.value); } catch (e) {}
+    }
+    // Migration : les pipelines déjà personnalisés avant l'ajout des étapes "Contrat signé"
+    // (conversion auto en client) et "Perdu" (arrêt des relances) n'ont pas ces marqueurs —
+    // on les complète une fois, sans écraser les personnalisations existantes.
+    if (customKanbanStatuses) {
+      var hasMarksAsClient = customKanbanStatuses.some(function(s) { return s.marksAsClient; });
+      var hasStopFollowUp = customKanbanStatuses.some(function(s) { return s.stopFollowUp; });
+      var kanbanMigrated = false;
+      if (!hasMarksAsClient) {
+        var signeStage = customKanbanStatuses.find(function(s) { return s.key === 'signe'; });
+        if (signeStage) { signeStage.marksAsClient = true; kanbanMigrated = true; }
+      }
+      if (!hasStopFollowUp) {
+        customKanbanStatuses.push({ key: 'perdu', label: currentLang === 'fr' ? 'Perdu' : 'Lost', color: '#94a3b8', stopFollowUp: true });
+        kanbanMigrated = true;
+      }
+      if (kanbanMigrated) { saveSetting('kanban_statuses', JSON.stringify(customKanbanStatuses)); }
     }
     if (_settingsCache.account_types) {
       try { customAccountTypes = JSON.parse(_settingsCache.account_types.value); } catch (e) {}
@@ -857,7 +892,8 @@ async function ensureTables() {
           { id: 'Email_Status', type: 'Text' },
           { id: 'Email_Sujet', type: 'Text' },
           { id: 'Email_Corps', type: 'Text' },
-          { id: 'Email_Destinataire', type: 'Text' }
+          { id: 'Email_Destinataire', type: 'Text' },
+          { id: 'Client_Depuis', type: 'Date' }
         ]]
       ]);
     }
@@ -1067,6 +1103,16 @@ async function ensureTables() {
 
     await migrateEmailQueueColumns();
 
+    try {
+      var compteColsClient = Object.keys(await grist.docApi.fetchTable(COMPTES_TABLE));
+      if (compteColsClient.indexOf('Client_Depuis') === -1) {
+        await grist.docApi.applyUserActions([['AddColumn', COMPTES_TABLE, 'Client_Depuis', { type: 'Date' }]]);
+        console.log('[CRM] Client_Depuis ajouté à ' + COMPTES_TABLE);
+      }
+    } catch (e) {
+      console.error('[CRM] Migration Client_Depuis ignorée :', e.message);
+    }
+
     showToast(t('tablesCreated'), 'success');
   } catch (e) {
     console.error('[CRM] Error ensuring tables:', e);
@@ -1146,7 +1192,8 @@ async function loadAllData() {
           Address_Street: compteData[addressStreetCol] ? compteData[addressStreetCol][i] : '',
           Address_Zip: compteData[addressZipCol] ? compteData[addressZipCol][i] : '',
           Address_City: compteData[addressCityCol] ? compteData[addressCityCol][i] : '',
-          Email_Status: compteData.Email_Status ? compteData.Email_Status[i] : 'brouillon'
+          Email_Status: compteData.Email_Status ? compteData.Email_Status[i] : 'brouillon',
+          Client_Depuis: compteData.Client_Depuis ? compteData.Client_Depuis[i] : null
         });
       }
     }
@@ -1401,19 +1448,24 @@ function getFilteredComptes() {
 }
 
 function isRelanceOverdue(compte) {
-  if (!compte.Relance_Date) return false;
+  if (!compte.Relance_Date || isStageStopFollowUp(compte.Status)) return false;
   return daysFromNow(compte.Relance_Date) < 0;
 }
 
 function isRelanceUpcoming(compte) {
-  if (!compte.Relance_Date) return false;
+  if (!compte.Relance_Date || isStageStopFollowUp(compte.Status)) return false;
   var d = daysFromNow(compte.Relance_Date);
   return d >= 0 && d <= 7;
 }
 
+function isStageStopFollowUp(statusKey) {
+  var stage = getKanbanStatuses().find(function(s) { return s.key === statusKey; });
+  return !!(stage && stage.stopFollowUp);
+}
+
 function getRelanceComptes() {
   return comptes
-    .filter(function(c) { return c.Relance_Date; })
+    .filter(function(c) { return c.Relance_Date && !isStageStopFollowUp(c.Status); })
     .sort(function(a, b) { return (a.Relance_Date || 0) - (b.Relance_Date || 0); });
 }
 
@@ -2298,11 +2350,19 @@ function renderKanbanView() {
   if (!board) return;
   var statuses = getKanbanStatuses();
   var filtered = getFilteredComptes();
+  var hideClientDays = getKanbanHideClientDays();
 
   var html = '';
   for (var s = 0; s < statuses.length; s++) {
     var col = statuses[s];
-    var colComptes = filtered.filter(function(c) { return c.Status === col.key; });
+    var colComptes = filtered.filter(function(c) {
+      if (c.Status !== col.key) return false;
+      if (col.marksAsClient && !kanbanShowAll) {
+        var since = c.Client_Depuis || c.Created_At;
+        if (since && daysFromNow(since) < -hideClientDays) return false;
+      }
+      return true;
+    });
     html += '<div class="kanban-column">';
     html += '<div class="kanban-col-header" style="--kanban-col-color:' + col.color + '; border-bottom-color:' + col.color + ';">';
     html += '<div class="kanban-col-header-left"><span>' + sanitize(col.label) + '</span></div><span class="kanban-count">' + colComptes.length + '</span>';
@@ -2374,9 +2434,23 @@ async function onKanbanDrop(e) {
     var statutCol = getColumnName('comptes', 'status');
     var record = {};
     record[statutCol] = newStatus;
+
+    var newStage = getKanbanStatuses().find(function(s) { return s.key === newStatus; });
+    var converted = false;
+    if (newStage && newStage.marksAsClient && compte.Type === 'prospect') {
+      setField(record, 'comptes', 'type', 'client');
+      record.Client_Depuis = Math.floor(Date.now() / 1000);
+      converted = true;
+    }
+
     await grist.docApi.applyUserActions([['UpdateRecord', COMPTES_TABLE, draggedCompteId, record]]);
     logActivity('status_changed', draggedCompteId, compte.Name, getStatusLabel(compte.Status) + ' → ' + getStatusLabel(newStatus));
-    showToast(t('compteMoved'), 'success');
+    if (converted) {
+      logActivity('compte_converted_to_client', draggedCompteId, compte.Name, '');
+      showToast(currentLang === 'fr' ? '🤝 ' + compte.Name + ' est maintenant client !' : '🤝 ' + compte.Name + ' is now a client!', 'success');
+    } else {
+      showToast(t('compteMoved'), 'success');
+    }
     await loadAllData();
   } catch (err) {
     console.error('[CRM] Error moving compte:', err);
@@ -2386,6 +2460,11 @@ async function onKanbanDrop(e) {
 
 function setKanbanSearch(value) {
   kanbanSearch = value;
+  renderKanbanView();
+}
+
+function setKanbanShowAll(checked) {
+  kanbanShowAll = checked;
   renderKanbanView();
 }
 
@@ -3205,7 +3284,14 @@ function renderTasksTab(compte) {
   var fr = currentLang === 'fr';
   var html = '';
 
-  if (compte.Relance_Date || compte.Next_Action) {
+  if (isStageStopFollowUp(compte.Status)) {
+    html += '<div class="relance-summary-card relance-summary-stopped">';
+    html += '<div class="relance-summary-header">🚫 ' + (fr ? 'Sans suite' : 'No follow-up') + '</div>';
+    html += '<div class="relance-summary-body"><div class="relance-summary-action">' + (fr
+      ? 'Ce dossier est classé « ' + sanitize(getStatusLabel(compte.Status)) + ' » — aucune relance ni prochaine action n’est proposée.'
+      : 'This record is marked “' + sanitize(getStatusLabel(compte.Status)) + '” — no reminder or next action is suggested.') + '</div></div>';
+    html += '</div>';
+  } else if (compte.Relance_Date || compte.Next_Action) {
     var days = compte.Relance_Date ? daysFromNow(compte.Relance_Date) : null;
     var daysLabel = days === null ? '' : (days < 0
       ? Math.abs(days) + (fr ? ' j de retard' : ' days overdue')
@@ -3512,9 +3598,17 @@ function renderSettingsView() {
   html += '<div class="settings-section">';
   html += '<h3>' + t('kanbanColumnsConfig') + '</h3>';
   html += '<p class="settings-hint">' + (currentLang === 'fr' ? 'Personnalisez les étapes de votre pipeline commercial (nom et couleur).' : 'Customize your pipeline stages.') + '</p>';
+  html += '<p class="settings-hint">🤝 = ' + (currentLang === 'fr' ? 'convertit le prospect en client' : 'converts prospect to client') + ' · 🚫 = ' + (currentLang === 'fr' ? 'sans suite (arrête les relances)' : 'no follow-up (stops reminders)') + '</p>';
   html += '<div id="kanban-status-list">' + renderKanbanStatusList() + '</div>';
   html += '<button class="btn btn-secondary" onclick="addKanbanStatusDraft()">+ ' + (currentLang === 'fr' ? 'Ajouter une étape' : 'Add a stage') + '</button>';
   html += '<button class="btn btn-primary" style="margin-left:8px;" onclick="commitKanbanStatuses()">' + t('save') + '</button>';
+  html += '<div class="add-form" style="margin-top:14px;padding-top:12px;border-top:2px solid var(--color-bg-soft);">';
+  html += '<label class="form-field" style="flex:1;"><span>' + (currentLang === 'fr'
+    ? 'Masquer du Kanban les clients convertis depuis plus de (jours)'
+    : 'Hide converted clients from Kanban after (days)') + '</span>';
+  html += '<input id="kanban-hide-client-days-input" type="number" min="0" value="' + getKanbanHideClientDays() + '" style="width:100px;"></label>';
+  html += '<button class="btn btn-primary" onclick="commitKanbanHideClientDays()">' + t('save') + '</button>';
+  html += '</div>';
   html += '</div>';
 
   // Bloc 2 — Types de comptes
@@ -3712,6 +3806,8 @@ function renderKanbanStatusList() {
     html += '<span class="drag-handle" title="' + (currentLang === 'fr' ? 'Glisser pour réordonner' : 'Drag to reorder') + '">⠿</span>';
     html += '<input type="color" value="' + s.color + '" onchange="updateKanbanStatusDraft(' + i + ', \'color\', this.value)">';
     html += '<input type="text" value="' + sanitize(s.label) + '" onchange="updateKanbanStatusDraft(' + i + ', \'label\', this.value)">';
+    html += '<label class="stage-flag-check" title="' + (currentLang === 'fr' ? 'Convertit automatiquement le prospect en client' : 'Automatically converts prospect to client') + '"><input type="checkbox" ' + (s.marksAsClient ? 'checked' : '') + ' onchange="updateKanbanStatusFlag(' + i + ', \'marksAsClient\', this.checked)"> 🤝</label>';
+    html += '<label class="stage-flag-check" title="' + (currentLang === 'fr' ? 'Sans suite : arrête les relances et prochaines actions' : 'No follow-up: stops reminders and next actions') + '"><input type="checkbox" ' + (s.stopFollowUp ? 'checked' : '') + ' onchange="updateKanbanStatusFlag(' + i + ', \'stopFollowUp\', this.checked)"> 🚫</label>';
     html += '<button class="btn-icon" onclick="removeKanbanStatusDraft(' + i + ')">🗑️</button>';
     html += '</div>';
   });
@@ -3754,6 +3850,10 @@ function updateKanbanStatusDraft(index, field, value) {
   if (field === 'label') {
     draftKanbanStatuses[index].key = value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('stage_' + index);
   }
+}
+
+function updateKanbanStatusFlag(index, flag, checked) {
+  draftKanbanStatuses[index][flag] = checked;
 }
 
 function addKanbanStatusDraft() {

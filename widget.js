@@ -358,6 +358,122 @@ function refreshTypeSelects() {
 
 // =============================================================================
 
+// PROCHAINE ACTION (personnalisable par type — prospect / client) — chaque action a un
+// délai de relance (en jours) utilisé pour calculer automatiquement la date de relance.
+var defaultNextActionsProspect = [
+  { key: 'premier_appel',    label: 'Premier appel',       reminderDays: 3 },
+  { key: 'envoi_devis',      label: 'Envoi devis',         reminderDays: 5 },
+  { key: 'relance_devis',    label: 'Relance devis',       reminderDays: 3 },
+  { key: 'rdv_decouverte',   label: 'RDV découverte',      reminderDays: 2 },
+  { key: 'envoi_contrat',    label: 'Envoi contrat',       reminderDays: 3 }
+];
+var defaultNextActionsClient = [
+  { key: 'renouvellement_contrat', label: 'Renouvellement contrat',         reminderDays: 7 },
+  { key: 'point_suivi',            label: 'Point de suivi',                 reminderDays: 5 },
+  { key: 'facture_a_envoyer',      label: 'Facture à envoyer',              reminderDays: 3 },
+  { key: 'upsell',                 label: 'Proposition complémentaire',     reminderDays: 5 }
+];
+var customNextActionsProspect = null;
+var customNextActionsClient = null;
+
+function getNextActions(compteType) {
+  if (compteType === 'client' || compteType === 'ancien') return customNextActionsClient || defaultNextActionsClient;
+  return customNextActionsProspect || defaultNextActionsProspect;
+}
+function getNextActionLabel(compteType, key) {
+  if (!key) return '';
+  var all = (customNextActionsProspect || defaultNextActionsProspect).concat(customNextActionsClient || defaultNextActionsClient);
+  var found = all.find(function(a) { return a.key === key; });
+  return found ? found.label : key;
+}
+function getNextActionReminderDays(compteType, key) {
+  var found = getNextActions(compteType).find(function(a) { return a.key === key; });
+  return found ? found.reminderDays : null;
+}
+async function saveNextActionsProspect() {
+  await saveSetting('next_actions_prospect', JSON.stringify(customNextActionsProspect));
+}
+async function saveNextActionsClient() {
+  await saveSetting('next_actions_client', JSON.stringify(customNextActionsClient));
+}
+
+var draftNextActionsProspect = null;
+var draftNextActionsClient = null;
+
+function renderNextActionsList(kind) {
+  var isClient = kind === 'client';
+  var draftVar = isClient ? draftNextActionsClient : draftNextActionsProspect;
+  var list = draftVar || getNextActions(isClient ? 'client' : 'prospect');
+  var html = '';
+  if (!list.length) html += '<div class="empty-state">Aucune action</div>';
+  list.forEach(function(a, idx) {
+    html += '<div class="kanban-status-edit-row">';
+    html += '<input type="text" value="' + sanitize(a.label) + '" oninput="updateNextActionDraftLabel(\'' + kind + '\', ' + idx + ', this.value)">';
+    html += '<input type="number" min="0" value="' + (a.reminderDays != null ? a.reminderDays : 3) + '" title="' + (currentLang === 'fr' ? 'Relancer après (jours)' : 'Follow up after (days)') + '" style="width:60px;" onchange="updateNextActionDraftDays(\'' + kind + '\', ' + idx + ', this.value)">';
+    html += '<span class="settings-hint" style="white-space:nowrap;">' + (currentLang === 'fr' ? 'j.' : 'd.') + '</span>';
+    html += '<button class="btn-icon" title="' + (currentLang === 'fr' ? 'Supprimer' : 'Delete') + '" onclick="removeNextActionDraft(\'' + kind + '\', ' + idx + ')">🗑️</button>';
+    html += '</div>';
+  });
+  html += '<div class="kanban-status-edit-row">';
+  html += '<input type="text" id="new-next-action-' + kind + '" placeholder="' + (currentLang === 'fr' ? 'Nom de la nouvelle action' : 'New action name') + '" style="flex:1;">';
+  html += '</div>';
+  return html;
+}
+
+function updateNextActionDraftLabel(kind, idx, val) {
+  var isClient = kind === 'client';
+  if (isClient) { if (!draftNextActionsClient) draftNextActionsClient = JSON.parse(JSON.stringify(getNextActions('client'))); draftNextActionsClient[idx].label = val; }
+  else { if (!draftNextActionsProspect) draftNextActionsProspect = JSON.parse(JSON.stringify(getNextActions('prospect'))); draftNextActionsProspect[idx].label = val; }
+}
+
+function updateNextActionDraftDays(kind, idx, val) {
+  var days = parseInt(val, 10) || 0;
+  var isClient = kind === 'client';
+  if (isClient) { if (!draftNextActionsClient) draftNextActionsClient = JSON.parse(JSON.stringify(getNextActions('client'))); draftNextActionsClient[idx].reminderDays = days; }
+  else { if (!draftNextActionsProspect) draftNextActionsProspect = JSON.parse(JSON.stringify(getNextActions('prospect'))); draftNextActionsProspect[idx].reminderDays = days; }
+}
+
+function addNextActionDraft(kind) {
+  var isClient = kind === 'client';
+  var draftVar = isClient ? draftNextActionsClient : draftNextActionsProspect;
+  if (!draftVar) { draftVar = JSON.parse(JSON.stringify(getNextActions(isClient ? 'client' : 'prospect'))); if (isClient) draftNextActionsClient = draftVar; else draftNextActionsProspect = draftVar; }
+  var label = getVal('new-next-action-' + kind, '').trim();
+  if (!label) {
+    showToast(currentLang === 'fr' ? 'Indiquez un nom d’action avant d’ajouter' : 'Enter an action name before adding', 'error');
+    return;
+  }
+  var slug = slugifyTypeKey(label);
+  var existingKeys = draftVar.map(function(a) { return a.key; });
+  var finalKey = slug, n = 2;
+  while (existingKeys.indexOf(finalKey) !== -1) { finalKey = slug + '_' + n; n++; }
+  draftVar.push({ key: finalKey, label: label, reminderDays: 3 });
+  commitNextActions(kind);
+}
+
+function removeNextActionDraft(kind, idx) {
+  var isClient = kind === 'client';
+  if (isClient) { if (!draftNextActionsClient) draftNextActionsClient = JSON.parse(JSON.stringify(getNextActions('client'))); draftNextActionsClient.splice(idx, 1); }
+  else { if (!draftNextActionsProspect) draftNextActionsProspect = JSON.parse(JSON.stringify(getNextActions('prospect'))); draftNextActionsProspect.splice(idx, 1); }
+  commitNextActions(kind);
+}
+
+async function commitNextActions(kind) {
+  var isClient = kind === 'client';
+  var draftVar = isClient ? draftNextActionsClient : draftNextActionsProspect;
+  if (!draftVar) return;
+  try {
+    if (isClient) { customNextActionsClient = draftVar; draftNextActionsClient = null; await saveNextActionsClient(); }
+    else { customNextActionsProspect = draftVar; draftNextActionsProspect = null; await saveNextActionsProspect(); }
+  } catch (e) {
+    console.error('[CRM] Échec sauvegarde actions :', e);
+    showToast((currentLang === 'fr' ? 'Échec de l’enregistrement : ' : 'Save failed: ') + e.message, 'error', 8000);
+    return;
+  }
+  var listEl = document.getElementById('next-actions-list-' + kind);
+  if (listEl) listEl.innerHTML = renderNextActionsList(kind);
+  showToast(currentLang === 'fr' ? 'Actions enregistrées' : 'Actions saved', 'success');
+}
+
 var defaultKanbanStatuses = [
   { key: 'premier_contact', label: 'Premier contact', color: '#3b82f6' },
   { key: 'negociation',     label: 'En négociation',  color: '#f59e0b' },
@@ -468,6 +584,12 @@ async function loadSettings() {
     }
     if (_settingsCache.account_types) {
       try { customAccountTypes = JSON.parse(_settingsCache.account_types.value); } catch (e) {}
+    }
+    if (_settingsCache.next_actions_prospect) {
+      try { customNextActionsProspect = JSON.parse(_settingsCache.next_actions_prospect.value); } catch (e) {}
+    }
+    if (_settingsCache.next_actions_client) {
+      try { customNextActionsClient = JSON.parse(_settingsCache.next_actions_client.value); } catch (e) {}
     }
     applyAccountTypeStyles();
     // Re-synchronise les listes de choix Grist (Type, Statut) avec les valeurs personnalisées
@@ -2211,7 +2333,7 @@ function renderCompteCard(compte) {
   html += '<div class="compte-card-name">' + sanitize(compte.Name) + '</div>';
   if (primaryContact) html += '<div class="compte-card-contact">👤 ' + sanitize(primaryContact.Name) + '</div>';
   if (compte.Amount) html += '<div class="compte-card-amount">' + formatAmount(compte.Amount) + '</div>';
-  if (compte.Next_Action) html += '<div class="compte-card-next">→ ' + sanitize(compte.Next_Action) + '</div>';
+  if (compte.Next_Action) html += '<div class="compte-card-next">→ ' + sanitize(getNextActionLabel(compte.Type, compte.Next_Action)) + '</div>';
   if (compte.Relance_Date) {
     html += '<div class="compte-card-relance ' + relanceClass + '">📅 ' + formatDate(compte.Relance_Date) + (relanceLate ? ' (' + t('overdue') + ')' : '') + '</div>';
   }
@@ -2845,7 +2967,7 @@ function renderFicheTab(compte) {
   );
 
   html += ficheCard('📅', fr ? 'Suivi & relances' : 'Follow-up',
-    ficheRow(t('fieldNextAction'), compte.Next_Action) +
+    ficheRow(t('fieldNextAction'), getNextActionLabel(compte.Type, compte.Next_Action)) +
     ficheRow(t('fieldNextActionDate'), compte.Next_Action_Date ? formatDate(compte.Next_Action_Date) : '') +
     ficheRow(t('fieldRelanceDate'), compte.Relance_Date ? formatDate(compte.Relance_Date) : '') +
     ficheRow(fr ? 'Créé le' : 'Created on', compte.Created_At ? formatDate(compte.Created_At) : '')
@@ -2907,7 +3029,7 @@ function renderInfoTab(compte) {
   html += '<h4 class="form-section-title">' + (fr2 ? 'Informations du compte' : 'Account information') + '</h4>';
   html += '<div class="form-grid">';
   html += formField(t('fieldName'), '<input id="compte-name" type="text" value="' + sanitize(vName) + '">');
-  html += formField(t('fieldType'), '<select id="compte-type">' +
+  html += formField(t('fieldType'), '<select id="compte-type" onchange="refreshNextActionOptions()">' +
     getAccountTypes().map(function(tp) { return '<option value="' + tp.key + '"' + (vType === tp.key ? ' selected' : '') + '>' + sanitize(tp.label) + '</option>'; }).join('') +
     '</select>');
   html += formField(t('fieldStatus'), '<select id="compte-status">' + buildStatusOptions(vStatus) + '</select>');
@@ -2919,8 +3041,8 @@ function renderInfoTab(compte) {
   html += formField(t('fieldResponsible'), '<select id="compte-responsible">' + buildEquipeOptions(vResponsible) + '</select>');
   html += formField(t('fieldAmount'), '<input id="compte-amount" type="number" step="0.01" value="' + sanitize(vAmount) + '">');
   html += formField(t('fieldContractsTotal'), '<input type="text" value="' + formatAmount(getSignedContractsTotal(compte.id)) + '" disabled style="background:var(--bg-disabled,#f1f5f9);color:#64748b;">');
-  html += formField(t('fieldNextAction'), '<input id="compte-next-action" type="text" value="' + sanitize(vNextAction) + '">');
-  html += formField(t('fieldNextActionDate'), '<input id="compte-next-action-date" type="date" value="' + sanitize(vNextActionDate) + '">');
+  html += formField(t('fieldNextAction'), '<select id="compte-next-action" onchange="recalcRelanceDate()">' + buildNextActionOptions(vType, vNextAction) + '</select>');
+  html += formField(t('fieldNextActionDate'), '<input id="compte-next-action-date" type="date" value="' + sanitize(vNextActionDate) + '" onchange="recalcRelanceDate()">');
   html += formField(t('fieldRelanceDate'), '<input id="compte-relance-date" type="date" value="' + sanitize(vRelanceDate) + '">');
   html += formField(t('fieldCategory'), '<input id="compte-category" type="text" value="' + sanitize(vCategory) + '">');
   html += formField(t('fieldTag'), '<input id="compte-tag" type="text" value="' + sanitize(vTag) + '">');
@@ -2935,6 +3057,46 @@ function renderInfoTab(compte) {
 
 function formField(label, inputHtml) {
   return '<div class="form-field"><label>' + sanitize(label) + '</label>' + inputHtml + '</div>';
+}
+
+function buildNextActionOptions(compteType, selectedKey) {
+  var actions = getNextActions(compteType);
+  var html = '<option value="">' + (currentLang === 'fr' ? '(aucune)' : '(none)') + '</option>';
+  var found = false;
+  actions.forEach(function(a) {
+    if (a.key === selectedKey) found = true;
+    html += '<option value="' + a.key + '"' + (selectedKey === a.key ? ' selected' : '') + '>' + sanitize(a.label) + '</option>';
+  });
+  if (selectedKey && !found) {
+    html += '<option value="' + sanitize(selectedKey) + '" selected>' + sanitize(selectedKey) + '</option>';
+  }
+  return html;
+}
+
+function refreshNextActionOptions() {
+  var type = getVal('compte-type', 'prospect');
+  var sel = document.getElementById('compte-next-action');
+  if (!sel) return;
+  sel.innerHTML = buildNextActionOptions(type, '');
+  recalcRelanceDate();
+}
+
+function addDaysToDateInput(dateStr, days) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function recalcRelanceDate() {
+  var type = getVal('compte-type', 'prospect');
+  var actionKey = getVal('compte-next-action', '');
+  var actionDate = getVal('compte-next-action-date', '');
+  var relanceEl = document.getElementById('compte-relance-date');
+  if (!relanceEl || !actionKey || !actionDate) return;
+  var days = getNextActionReminderDays(type, actionKey);
+  if (days == null) return;
+  relanceEl.value = addDaysToDateInput(actionDate, days);
 }
 
 // --- Contacts tab ---
@@ -3051,7 +3213,7 @@ function renderTasksTab(compte) {
     html += '<div class="relance-summary-card' + (days !== null && days < 0 ? ' relance-summary-late' : '') + '">';
     html += '<div class="relance-summary-header">🔔 ' + (fr ? 'Relance à traiter' : 'Reminder to handle') + '</div>';
     html += '<div class="relance-summary-body">';
-    html += '<div class="relance-summary-action">' + sanitize(compte.Next_Action || (fr ? '(aucune action précisée)' : '(no action specified)')) + '</div>';
+    html += '<div class="relance-summary-action">' + (compte.Next_Action ? sanitize(getNextActionLabel(compte.Type, compte.Next_Action)) : (fr ? '(aucune action précisée)' : '(no action specified)')) + '</div>';
     if (compte.Relance_Date) {
       html += '<div class="relance-summary-date">' + (fr ? 'Prévue le ' : 'Scheduled for ') + formatDate(compte.Relance_Date) + (daysLabel ? ' (' + daysLabel + ')' : '') + '</div>';
     }
@@ -3365,6 +3527,30 @@ function renderSettingsView() {
   html += '<div id="account-type-list">' + renderAccountTypeList() + '</div>';
   html += '<button class="btn btn-secondary" onclick="addAccountTypeDraft()">+ ' + (currentLang === 'fr' ? 'Ajouter un type' : 'Add a type') + '</button>';
   html += '<button class="btn btn-primary" style="margin-left:8px;" onclick="commitAccountTypes()">' + t('save') + '</button>';
+  html += '</div>';
+
+  html += '</div>'; // fin .settings-row-2col
+
+  html += '<div class="settings-row-2col">';
+
+  // Bloc 3 — Prochaines actions Prospect
+  html += '<div class="settings-section">';
+  html += '<h3>' + (currentLang === 'fr' ? 'Actions — Prospects' : 'Actions — Prospects') + '</h3>';
+  html += '<p class="settings-hint">' + (currentLang === 'fr'
+    ? 'Actions disponibles pour un prospect, avec délai de relance (en jours) si aucune réponse.'
+    : 'Available actions for a prospect, with follow-up delay (days) if no response.') + '</p>';
+  html += '<div id="next-actions-list-prospect">' + renderNextActionsList('prospect') + '</div>';
+  html += '<button class="btn btn-primary" onclick="addNextActionDraft(\'prospect\')">+ ' + (currentLang === 'fr' ? 'Ajouter une action' : 'Add an action') + '</button>';
+  html += '</div>';
+
+  // Bloc 4 — Prochaines actions Client
+  html += '<div class="settings-section">';
+  html += '<h3>' + (currentLang === 'fr' ? 'Actions — Clients' : 'Actions — Clients') + '</h3>';
+  html += '<p class="settings-hint">' + (currentLang === 'fr'
+    ? 'Actions disponibles pour un client (ou ancien client), avec délai de relance (en jours).'
+    : 'Available actions for a client (or former client), with follow-up delay (days).') + '</p>';
+  html += '<div id="next-actions-list-client">' + renderNextActionsList('client') + '</div>';
+  html += '<button class="btn btn-primary" onclick="addNextActionDraft(\'client\')">+ ' + (currentLang === 'fr' ? 'Ajouter une action' : 'Add an action') + '</button>';
   html += '</div>';
 
   html += '</div>'; // fin .settings-row-2col

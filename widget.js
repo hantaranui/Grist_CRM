@@ -476,6 +476,7 @@ async function commitNextActions(kind) {
 }
 
 var defaultKanbanStatuses = [
+  { key: 'nouveau',         label: 'Nouveau',         color: '#a855f7' },
   { key: 'premier_contact', label: 'Premier contact', color: '#3b82f6' },
   { key: 'negociation',     label: 'En négociation',  color: '#f59e0b' },
   { key: 'signature',       label: 'En signature',    color: '#8b5cf6' },
@@ -613,6 +614,11 @@ async function loadSettings() {
       }
       if (!hasStopFollowUp) {
         customKanbanStatuses.push({ key: 'perdu', label: currentLang === 'fr' ? 'Perdu' : 'Lost', color: '#94a3b8', stopFollowUp: true });
+        kanbanMigrated = true;
+      }
+      var hasNouveau = customKanbanStatuses.some(function(s) { return s.key === 'nouveau'; });
+      if (!hasNouveau) {
+        customKanbanStatuses.unshift({ key: 'nouveau', label: currentLang === 'fr' ? 'Nouveau' : 'New', color: '#a855f7' });
         kanbanMigrated = true;
       }
       if (kanbanMigrated) { saveSetting('kanban_statuses', JSON.stringify(customKanbanStatuses)); }
@@ -888,6 +894,8 @@ async function ensureTables() {
           { id: 'Adresse_Rue', type: 'Text' },
           { id: 'Adresse_Code_Postal', type: 'Text' },
           { id: 'Adresse_Ville', type: 'Text' },
+          { id: 'Adresse_Lat', type: 'Numeric' },
+          { id: 'Adresse_Lng', type: 'Numeric' },
           { id: 'Cree_Le', type: 'Date' },
           { id: 'Email_Status', type: 'Text' },
           { id: 'Email_Sujet', type: 'Text' },
@@ -1113,6 +1121,18 @@ async function ensureTables() {
       console.error('[CRM] Migration Client_Depuis ignorée :', e.message);
     }
 
+    try {
+      var compteColsGeo = Object.keys(await grist.docApi.fetchTable(COMPTES_TABLE));
+      if (compteColsGeo.indexOf('Adresse_Lat') === -1) {
+        await grist.docApi.applyUserActions([['AddColumn', COMPTES_TABLE, 'Adresse_Lat', { type: 'Numeric' }]]);
+      }
+      if (compteColsGeo.indexOf('Adresse_Lng') === -1) {
+        await grist.docApi.applyUserActions([['AddColumn', COMPTES_TABLE, 'Adresse_Lng', { type: 'Numeric' }]]);
+      }
+    } catch (e) {
+      console.error('[CRM] Migration Adresse_Lat/Lng ignorée :', e.message);
+    }
+
     showToast(t('tablesCreated'), 'success');
   } catch (e) {
     console.error('[CRM] Error ensuring tables:', e);
@@ -1193,7 +1213,9 @@ async function loadAllData() {
           Address_Zip: compteData[addressZipCol] ? compteData[addressZipCol][i] : '',
           Address_City: compteData[addressCityCol] ? compteData[addressCityCol][i] : '',
           Email_Status: compteData.Email_Status ? compteData.Email_Status[i] : 'brouillon',
-          Client_Depuis: compteData.Client_Depuis ? compteData.Client_Depuis[i] : null
+          Client_Depuis: compteData.Client_Depuis ? compteData.Client_Depuis[i] : null,
+          Address_Lat: compteData.Adresse_Lat ? compteData.Adresse_Lat[i] : null,
+          Address_Lng: compteData.Adresse_Lng ? compteData.Adresse_Lng[i] : null
         });
       }
     }
@@ -1518,6 +1540,10 @@ async function saveCompteFromModal(compteId) {
   setField(record, 'comptes', 'addressStreet', getVal('compte-address-street', ''));
   setField(record, 'comptes', 'addressZip', getVal('compte-address-zip', ''));
   setField(record, 'comptes', 'addressCity', getVal('compte-address-city', ''));
+  var addressLat = getVal('compte-address-lat', '');
+  var addressLng = getVal('compte-address-lng', '');
+  record.Adresse_Lat = addressLat ? parseFloat(addressLat) : null;
+  record.Adresse_Lng = addressLng ? parseFloat(addressLng) : null;
 
   var contactName = getVal('compte-contact-name', '').trim();
   var contactEmail = getVal('compte-contact-email', '').trim();
@@ -2910,6 +2936,8 @@ function captureInfoDraftIfPresent() {
     addressStreet: getVal('compte-address-street', ''),
     addressZip: getVal('compte-address-zip', ''),
     addressCity: getVal('compte-address-city', ''),
+    addressLat: getVal('compte-address-lat', ''),
+    addressLng: getVal('compte-address-lng', ''),
     contactName: getVal('compte-contact-name', ''),
     contactEmail: getVal('compte-contact-email', ''),
     contactPhone: getVal('compte-contact-phone', '')
@@ -2924,6 +2952,20 @@ function openEditCompteModal(compteId, keepTab) {
   var modalContainer = document.getElementById('modal-container');
   modalContainer.innerHTML = renderCompteModal(compte);
   modalContainer.classList.remove('hidden');
+
+  if (editModalActiveTab === 'fiche' && compte.Address_Lat != null && compte.Address_Lng != null) {
+    initFicheMap(compte);
+  }
+}
+
+function initFicheMap(compte) {
+  var mapEl = document.getElementById('fiche-map-' + compte.id);
+  if (!mapEl || typeof L === 'undefined') return;
+  setTimeout(function() {
+    var map = L.map(mapEl, { attributionControl: false }).setView([compte.Address_Lat, compte.Address_Lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    L.marker([compte.Address_Lat, compte.Address_Lng]).addTo(map);
+  }, 50);
 }
 
 function renderCompteModal(compte) {
@@ -3052,11 +3094,13 @@ function renderFicheTab(compte) {
     ficheRow(fr ? 'Créé le' : 'Created on', compte.Created_At ? formatDate(compte.Created_At) : '')
   );
 
-  html += ficheCard('📍', fr ? 'Adresse' : 'Address',
-    ficheRow(t('fieldAddressStreet'), compte.Address_Street) +
+  var addressRowsHtml = ficheRow(t('fieldAddressStreet'), compte.Address_Street) +
     ficheRow(t('fieldAddressZip'), compte.Address_Zip) +
-    ficheRow(t('fieldAddressCity'), compte.Address_City)
-  );
+    ficheRow(t('fieldAddressCity'), compte.Address_City);
+  if (compte.Address_Lat != null && compte.Address_Lng != null) {
+    addressRowsHtml += '<div id="fiche-map-' + compte.id + '" class="fiche-map"></div>';
+  }
+  html += ficheCard('📍', fr ? 'Adresse' : 'Address', addressRowsHtml);
 
   html += ficheCard('🏷️', fr ? 'Catégorisation' : 'Categorization',
     ficheRow(t('fieldCategory'), compte.Category) +
@@ -3089,6 +3133,8 @@ function renderInfoTab(compte) {
   var vAddressStreet = d ? d.addressStreet : compte.Address_Street;
   var vAddressZip = d ? d.addressZip : compte.Address_Zip;
   var vAddressCity = d ? d.addressCity : compte.Address_City;
+  var vAddressLat = d ? d.addressLat : compte.Address_Lat;
+  var vAddressLng = d ? d.addressLng : compte.Address_Lng;
   var primaryContact = getPrimaryContact(compte.id);
   var vContactName = d ? d.contactName : (primaryContact ? primaryContact.Name : '');
   var vContactEmail = d ? d.contactEmail : (primaryContact ? primaryContact.Email : '');
@@ -3126,7 +3172,13 @@ function renderInfoTab(compte) {
   html += formField(t('fieldCategory'), '<input id="compte-category" type="text" value="' + sanitize(vCategory) + '">');
   html += formField(t('fieldTag'), '<input id="compte-tag" type="text" value="' + sanitize(vTag) + '">');
   html += formField(t('fieldWebsite'), '<input id="compte-website" type="text" placeholder="https://..." value="' + sanitize(vWebsite) + '">');
-  html += formField(t('fieldAddressStreet'), '<input id="compte-address-street" type="text" value="' + sanitize(vAddressStreet) + '">');
+  html += '<div class="form-field form-field-address" style="position:relative;">';
+  html += '<label>' + sanitize(t('fieldAddressStreet')) + '</label>';
+  html += '<input id="compte-address-street" type="text" autocomplete="off" value="' + sanitize(vAddressStreet) + '" oninput="onAddressStreetInput(this.value)" onblur="setTimeout(hideAddressSuggestions, 200)" placeholder="' + (currentLang === 'fr' ? 'Commencez à taper pour rechercher...' : 'Start typing to search...') + '">';
+  html += '<input type="hidden" id="compte-address-lat" value="' + (vAddressLat != null ? vAddressLat : '') + '">';
+  html += '<input type="hidden" id="compte-address-lng" value="' + (vAddressLng != null ? vAddressLng : '') + '">';
+  html += '<div id="address-suggestions" class="address-suggestions hidden"></div>';
+  html += '</div>';
   html += formField(t('fieldAddressZip'), '<input id="compte-address-zip" type="text" value="' + sanitize(vAddressZip) + '">');
   html += formField(t('fieldAddressCity'), '<input id="compte-address-city" type="text" value="' + sanitize(vAddressCity) + '">');
   html += '</div>';
@@ -3136,6 +3188,75 @@ function renderInfoTab(compte) {
 
 function formField(label, inputHtml) {
   return '<div class="form-field"><label>' + sanitize(label) + '</label>' + inputHtml + '</div>';
+}
+
+// --- Autocomplétion d'adresse (API Adresse gouv.fr — gratuite, sans clé) ---
+var _addressAutocompleteTimer = null;
+var _addressSuggestions = [];
+
+function onAddressStreetInput(value) {
+  // l'utilisateur retape manuellement : on invalide les coordonnées tant qu'il ne resélectionne pas une suggestion
+  setVal('compte-address-lat', '');
+  setVal('compte-address-lng', '');
+  if (_addressAutocompleteTimer) clearTimeout(_addressAutocompleteTimer);
+  var query = value.trim();
+  if (query.length < 3) {
+    hideAddressSuggestions();
+    return;
+  }
+  _addressAutocompleteTimer = setTimeout(function() { fetchAddressSuggestions(query); }, 300);
+}
+
+function fetchAddressSuggestions(query) {
+  fetch('https://api-adresse.data.gouv.fr/search/?q=' + encodeURIComponent(query) + '&limit=5')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      _addressSuggestions = (data.features || []).map(function(f) {
+        return {
+          label: f.properties.label,
+          street: (f.properties.housenumber ? f.properties.housenumber + ' ' : '') + (f.properties.street || f.properties.name || ''),
+          postcode: f.properties.postcode || '',
+          city: f.properties.city || '',
+          lat: f.geometry.coordinates[1],
+          lng: f.geometry.coordinates[0]
+        };
+      });
+      renderAddressSuggestions();
+    })
+    .catch(function(e) { console.log('[CRM] Address autocomplete failed:', e.message); });
+}
+
+function renderAddressSuggestions() {
+  var box = document.getElementById('address-suggestions');
+  if (!box) return;
+  if (_addressSuggestions.length === 0) { hideAddressSuggestions(); return; }
+  var html = _addressSuggestions.map(function(s, idx) {
+    return '<div class="address-suggestion-item" onclick="selectAddressSuggestion(' + idx + ')">' + sanitize(s.label) + '</div>';
+  }).join('');
+  box.innerHTML = html;
+  box.classList.remove('hidden');
+}
+
+function hideAddressSuggestions() {
+  var box = document.getElementById('address-suggestions');
+  if (box) { box.innerHTML = ''; box.classList.add('hidden'); }
+  _addressSuggestions = [];
+}
+
+function selectAddressSuggestion(idx) {
+  var s = _addressSuggestions[idx];
+  if (!s) return;
+  setVal('compte-address-street', s.street);
+  setVal('compte-address-zip', s.postcode);
+  setVal('compte-address-city', s.city);
+  setVal('compte-address-lat', s.lat);
+  setVal('compte-address-lng', s.lng);
+  hideAddressSuggestions();
+}
+
+function setVal(id, value) {
+  var el = document.getElementById(id);
+  if (el) el.value = value;
 }
 
 function buildNextActionOptions(compteType, selectedKey) {
